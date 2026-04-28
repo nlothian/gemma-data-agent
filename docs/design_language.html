@@ -1,0 +1,2593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lumen — A Design Language for Learning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@200;300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Serif:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  /* =========================================================
+     LUMEN — Design Tokens
+     ========================================================= */
+  :root {
+    /* Neutrals — ordered light to dark */
+    --white:      #FFFFFF;
+    --snow:       #F6F8FB;   /* page background */
+    --cloud:      #ECF0F5;   /* subtle surface */
+    --mist:       #DCE2EA;   /* dividers, low contrast */
+    --silver:     #B8C0CB;   /* mid grey */
+    --steel:      #6B7785;   /* secondary text */
+    --graphite:   #2D3640;   /* primary text */
+    --ink:        #0F1419;   /* high-emphasis text */
+
+    /* Aqua blues — primary brand spectrum */
+    --aqua-50:    #EAF2FE;
+    --aqua-100:   #D2E2FE;
+    --aqua-200:   #A6C5FE;
+    --aqua-300:   #6FA1FB;
+    --aqua-400:   #4F8FFF;
+    --aqua-500:   #1E66E8;   /* primary */
+    --aqua-600:   #1452C8;
+    --aqua-700:   #0B47B8;
+    --aqua-800:   #073480;
+
+    /* Semantic spectrums — danger, warning, success */
+    --danger-50:   #FEEBEA;
+    --danger-100:  #FBD0CD;
+    --danger-200:  #F8A29C;
+    --danger-300:  #F2756B;
+    --danger-400:  #EC524A;
+    --danger-500:  #E53935;
+    --danger-600:  #C92723;
+    --danger-700:  #A11814;
+    --danger-800:  #6E0F0C;
+
+    --warning-50:  #FEF5E0;
+    --warning-100: #FDE7B5;
+    --warning-300: #F8B838;
+    --warning-500: #F4A800;
+    --warning-700: #8C5F00;
+
+    --success-50:  #E0F5EC;
+    --success-100: #B5E5CD;
+    --success-500: #00A86B;
+    --success-700: #006B43;
+
+    /* Aliases retained for compatibility */
+    --success:    #00A86B;
+    --warning:    #F4A800;
+    --danger:     #E53935;
+
+    /* Glossy surface gradients */
+    --gel-blue:    linear-gradient(180deg, #5C95FF 0%, #2A6EE8 50%, #1E66E8 51%, #1452C8 100%);
+    --gel-red:     linear-gradient(180deg, #F2756B 0%, #DC2D29 50%, #E53935 51%, #C92723 100%);
+    --gel-white:   linear-gradient(180deg, #FFFFFF 0%, #F4F7FB 50%, #ECF0F5 51%, #DCE2EA 100%);
+    --chrome:      linear-gradient(180deg, #FFFFFF 0%, #E8ECF1 45%, #C9D1DB 50%, #B8C0CB 100%);
+    --pinstripe:   repeating-linear-gradient(0deg, rgba(180,195,215,0.10) 0px, rgba(180,195,215,0.10) 1px, transparent 1px, transparent 3px);
+
+    /* Type */
+    --font-sans:  "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono:  "IBM Plex Mono", ui-monospace, monospace;
+    --font-serif: "IBM Plex Serif", Georgia, serif;
+
+    /* Radii */
+    --r-2:  2px;
+    --r-4:  4px;
+    --r-8:  8px;
+    --r-12: 12px;
+    --r-16: 16px;
+    --r-24: 24px;
+    --r-full: 999px;
+
+    /* Spacing — 4px base */
+    --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+    --s-5: 20px; --s-6: 24px; --s-7: 32px; --s-8: 40px;
+    --s-9: 48px; --s-10: 64px; --s-11: 80px; --s-12: 120px;
+
+    /* Elevation — soft, cool-tinted shadows */
+    --el-1: 0 1px 2px rgba(15,20,25,0.04), 0 1px 1px rgba(15,20,25,0.03);
+    --el-2: 0 2px 4px rgba(15,20,25,0.05), 0 4px 12px rgba(15,20,25,0.04);
+    --el-3: 0 4px 8px rgba(15,20,25,0.06), 0 12px 32px rgba(15,20,25,0.06);
+    --el-4: 0 8px 16px rgba(15,20,25,0.08), 0 24px 56px rgba(15,20,25,0.08);
+    --inner-gloss: inset 0 1px 0 rgba(255,255,255,0.6);
+
+    /* Focus ring — chrome-tinted */
+    --focus-ring: 0 0 0 2px var(--white), 0 0 0 4px var(--aqua-500);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    color: var(--graphite);
+    background: var(--snow);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.5;
+  }
+
+  /* =========================================================
+     NAV
+     ========================================================= */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+    background: rgba(246,248,251,0.78);
+    border-bottom: 1px solid var(--mist);
+  }
+  .nav-inner {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-6);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    font-size: 16px;
+  }
+  .brand-dome {
+    width: 22px; height: 22px;
+    position: relative;
+  }
+  .brand-dome svg { display: block; }
+  .nav-links {
+    display: flex;
+    gap: var(--s-7);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .nav-links a {
+    color: var(--steel);
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+  .nav-links a:hover { color: var(--aqua-500); }
+  .nav-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--silver);
+    letter-spacing: 0.04em;
+  }
+
+  /* =========================================================
+     LAYOUT
+     ========================================================= */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+  section {
+    padding: var(--s-12) 0;
+    border-bottom: 1px solid var(--mist);
+  }
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--aqua-700);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: var(--s-5);
+  }
+  .section-label::before {
+    content: "";
+    width: 18px; height: 1px;
+    background: var(--aqua-500);
+  }
+  .section-title {
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 300;
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin: 0 0 var(--s-5) 0;
+    max-width: 880px;
+  }
+  .section-title em {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 300;
+    color: var(--aqua-600);
+  }
+  .section-lede {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--steel);
+    max-width: 640px;
+    margin: 0 0 var(--s-9) 0;
+  }
+
+  /* =========================================================
+     HERO
+     ========================================================= */
+  .hero {
+    padding: var(--s-12) 0 var(--s-11) 0;
+    position: relative;
+    overflow: hidden;
+    background: var(--snow);
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--pinstripe);
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: var(--s-10);
+    align-items: end;
+    position: relative;
+  }
+  .hero-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--aqua-700);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: var(--s-7);
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+  }
+  .hero-eyebrow .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--aqua-500);
+    box-shadow: 0 0 0 3px rgba(30,102,232,0.18);
+  }
+  .hero h1 {
+    font-size: clamp(80px, 11vw, 168px);
+    font-weight: 200;
+    line-height: 0.92;
+    letter-spacing: -0.045em;
+    color: var(--ink);
+    margin: 0 0 var(--s-7) 0;
+  }
+  .hero h1 em {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 300;
+    color: var(--aqua-500);
+  }
+  .hero-tagline {
+    font-size: 22px;
+    font-weight: 300;
+    line-height: 1.35;
+    color: var(--graphite);
+    max-width: 540px;
+    margin: 0 0 var(--s-8) 0;
+    letter-spacing: -0.005em;
+  }
+  .hero-tagline strong {
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-7);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--steel);
+  }
+  .hero-meta div { display: flex; flex-direction: column; gap: 2px; }
+  .hero-meta strong {
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .hero-visual {
+    position: relative;
+    height: 480px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  /* The G4 dome motif — abstracted */
+  .dome-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .dome-screen {
+    width: 280px;
+    height: 200px;
+    background: var(--gel-white);
+    border-radius: 18px;
+    box-shadow: var(--el-3), var(--inner-gloss);
+    border: 1px solid rgba(184,192,203,0.4);
+    position: relative;
+    margin-bottom: -8px;
+    transform: rotate(-2deg) translateX(-20px);
+    overflow: hidden;
+  }
+  .dome-screen::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border-radius: 10px;
+    background:
+      radial-gradient(ellipse at 30% 30%, rgba(255,255,255,0.6) 0%, transparent 40%),
+      linear-gradient(160deg, #4F8FFF 0%, #1E66E8 60%, #0B47B8 100%);
+  }
+  .dome-screen::after {
+    content: "Lumen";
+    position: absolute;
+    bottom: 24px; left: 0; right: 0;
+    text-align: center;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 300;
+    font-size: 32px;
+    color: rgba(255,255,255,0.95);
+    letter-spacing: -0.02em;
+  }
+  .dome-arm {
+    width: 8px;
+    height: 60px;
+    background: var(--chrome);
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 1px 0 0 rgba(255,255,255,0.4), inset -1px 0 0 rgba(0,0,0,0.05);
+    transform: translateX(-20px);
+    margin-bottom: -2px;
+  }
+  .dome-base {
+    width: 320px;
+    height: 160px;
+    border-radius: 50% 50% 4px 4px / 100% 100% 4px 4px;
+    background: var(--gel-white);
+    box-shadow: var(--el-4), var(--inner-gloss);
+    border: 1px solid rgba(184,192,203,0.5);
+    border-bottom: 1px solid var(--silver);
+    position: relative;
+    overflow: hidden;
+  }
+  .dome-base::before {
+    content: "";
+    position: absolute;
+    top: 8px; left: 16px; right: 16px;
+    height: 40%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.9) 0%, transparent 70%);
+  }
+  .dome-base::after {
+    content: "";
+    position: absolute;
+    bottom: 8px; left: 50%;
+    width: 14px; height: 14px;
+    transform: translateX(-50%);
+    background: radial-gradient(ellipse at 30% 30%, var(--aqua-300), var(--aqua-700));
+    border-radius: 50%;
+    box-shadow: 0 0 12px rgba(30,102,232,0.6), inset 0 1px 0 rgba(255,255,255,0.4);
+  }
+
+  /* =========================================================
+     PRINCIPLES
+     ========================================================= */
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-6);
+    margin-top: var(--s-7);
+  }
+  .principle {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-7) var(--s-6);
+    box-shadow: var(--el-1);
+    position: relative;
+    overflow: hidden;
+  }
+  .principle::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--aqua-300), transparent);
+  }
+  .principle-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--aqua-500);
+    letter-spacing: 0.12em;
+    margin-bottom: var(--s-4);
+  }
+  .principle h3 {
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+    margin: 0 0 var(--s-3) 0;
+  }
+  .principle h3 em {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--aqua-600);
+  }
+  .principle p {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--steel);
+    margin: 0;
+  }
+
+  /* =========================================================
+     COLOR
+     ========================================================= */
+  .color-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-9);
+  }
+  .color-group h4 {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--steel);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0 0 var(--s-5) 0;
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--mist);
+  }
+  .swatch-row {
+    display: flex;
+    gap: 0;
+    border-radius: var(--r-8);
+    overflow: hidden;
+    box-shadow: var(--el-1);
+    border: 1px solid var(--mist);
+    margin-bottom: var(--s-3);
+  }
+  .swatch {
+    flex: 1;
+    aspect-ratio: 1;
+    padding: var(--s-3);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.3;
+    position: relative;
+    transition: flex 200ms ease;
+  }
+  .swatch:hover { flex: 1.6; }
+  .swatch .name { font-weight: 500; }
+  .swatch .hex { opacity: 0.7; }
+  .swatch[data-light] { color: var(--ink); }
+  .swatch[data-dark] { color: var(--white); }
+
+  .color-token {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--mist);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .color-token:last-child { border-bottom: none; }
+  .token-chip {
+    width: 28px; height: 28px;
+    border-radius: var(--r-4);
+    border: 1px solid rgba(15,20,25,0.08);
+    flex-shrink: 0;
+  }
+  .token-name { color: var(--ink); flex: 1; }
+  .token-val { color: var(--steel); }
+
+  /* =========================================================
+     TYPOGRAPHY
+     ========================================================= */
+  .type-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-7);
+  }
+  .type-row {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    align-items: baseline;
+    gap: var(--s-7);
+    padding: var(--s-5) 0;
+    border-bottom: 1px solid var(--mist);
+  }
+  .type-spec {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+  }
+  .type-spec strong {
+    display: block;
+    color: var(--ink);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 4px;
+  }
+  .type-sample { color: var(--ink); }
+  .t-display { font-size: 64px; font-weight: 200; line-height: 1; letter-spacing: -0.04em; }
+  .t-display em { font-family: var(--font-serif); font-style: italic; font-weight: 300; color: var(--aqua-500); }
+  .t-h1 { font-size: 40px; font-weight: 300; line-height: 1.1; letter-spacing: -0.025em; }
+  .t-h2 { font-size: 28px; font-weight: 400; line-height: 1.2; letter-spacing: -0.015em; }
+  .t-h3 { font-size: 20px; font-weight: 500; line-height: 1.3; letter-spacing: -0.005em; }
+  .t-body-l { font-size: 17px; font-weight: 400; line-height: 1.55; }
+  .t-body { font-size: 15px; font-weight: 400; line-height: 1.55; }
+  .t-caption { font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--steel); }
+  .t-mono { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.02em; color: var(--graphite); }
+  .t-serif { font-family: var(--font-serif); font-style: italic; font-weight: 300; font-size: 28px; color: var(--aqua-600); letter-spacing: -0.01em; }
+
+  /* =========================================================
+     SURFACES
+     ========================================================= */
+  .surfaces-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-5);
+  }
+  .surface {
+    border-radius: var(--r-12);
+    padding: var(--s-7);
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+  }
+  .surface-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .surface-name {
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+  .surface-spec {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+  }
+  .s-flat   { background: var(--snow); border: 1px solid var(--mist); }
+  .s-raised { background: var(--white); border: 1px solid var(--mist); box-shadow: var(--el-2); }
+  .s-floating { background: var(--white); border: 1px solid var(--mist); box-shadow: var(--el-3); }
+  .s-overlay { background: rgba(255,255,255,0.78); backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%); border: 1px solid rgba(255,255,255,0.7); box-shadow: var(--el-3); }
+  .s-overlay::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(79,143,255,0.12), transparent 50%),
+      radial-gradient(ellipse at 100% 100%, rgba(0,168,107,0.08), transparent 50%);
+    z-index: -1;
+  }
+  .s-gel    { background: var(--gel-blue); color: var(--white); border: 1px solid var(--aqua-700); box-shadow: var(--el-3), var(--inner-gloss); }
+  .s-gel .surface-label, .s-gel .surface-spec { color: rgba(255,255,255,0.7); }
+  .s-gel .surface-name { color: var(--white); }
+  .s-chrome { background: var(--chrome); border: 1px solid var(--silver); box-shadow: var(--el-2), var(--inner-gloss); }
+
+  /* =========================================================
+     COMPONENTS
+     ========================================================= */
+  .components-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--s-7);
+  }
+  .comp-card {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-7);
+    box-shadow: var(--el-1);
+  }
+  .comp-card h4 {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--steel);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin: 0 0 var(--s-5) 0;
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--mist);
+  }
+  .comp-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    align-items: center;
+    margin-bottom: var(--s-4);
+  }
+  .comp-row:last-child { margin-bottom: 0; }
+  .comp-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    width: 70px;
+    flex-shrink: 0;
+  }
+
+  /* Buttons */
+  .btn {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    padding: 10px 18px;
+    border-radius: var(--r-8);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 140ms ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    line-height: 1;
+  }
+  .btn-primary {
+    background: var(--gel-blue);
+    color: var(--white);
+    border-color: var(--aqua-700);
+    box-shadow: var(--el-1), var(--inner-gloss);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--el-2), var(--inner-gloss);
+    filter: brightness(1.06);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+    filter: brightness(0.96);
+  }
+  .btn-secondary {
+    background: var(--gel-white);
+    color: var(--graphite);
+    border-color: var(--mist);
+    box-shadow: var(--el-1), var(--inner-gloss);
+  }
+  .btn-secondary:hover {
+    border-color: var(--silver);
+    transform: translateY(-1px);
+    box-shadow: var(--el-2), var(--inner-gloss);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--aqua-600);
+  }
+  .btn-ghost:hover {
+    background: var(--aqua-50);
+    color: var(--aqua-700);
+  }
+  .btn-link {
+    background: transparent;
+    color: var(--aqua-600);
+    padding: 6px 0;
+    border-radius: 0;
+    border-bottom: 1px solid var(--aqua-300);
+    text-decoration: none;
+  }
+  .btn-link:hover { color: var(--aqua-700); border-color: var(--aqua-500); }
+
+  /* Inputs */
+  .input {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    padding: 10px 14px;
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-8);
+    color: var(--ink);
+    width: 100%;
+    transition: all 140ms ease;
+    box-shadow: inset 0 1px 0 rgba(15,20,25,0.02);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--aqua-500);
+    box-shadow: 0 0 0 3px rgba(30,102,232,0.18), inset 0 1px 0 rgba(15,20,25,0.02);
+  }
+  .input::placeholder { color: var(--silver); }
+
+  /* Toggle */
+  .toggle {
+    position: relative;
+    width: 40px; height: 22px;
+    background: var(--mist);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 200ms ease;
+    border: 1px solid var(--silver);
+    box-shadow: inset 0 1px 2px rgba(15,20,25,0.08);
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 1px; left: 1px;
+    width: 18px; height: 18px;
+    background: var(--gel-white);
+    border-radius: 50%;
+    box-shadow: var(--el-1), var(--inner-gloss);
+    border: 1px solid var(--silver);
+    transition: left 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .toggle.on {
+    background: var(--gel-blue);
+    border-color: var(--aqua-700);
+  }
+  .toggle.on::after { left: 19px; }
+
+  /* Badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.04em;
+  }
+  .badge-blue { background: var(--aqua-50); color: var(--aqua-700); border: 1px solid var(--aqua-100); }
+  .badge-green { background: rgba(0,168,107,0.1); color: #006B43; border: 1px solid rgba(0,168,107,0.2); }
+  .badge-amber { background: rgba(244,168,0,0.12); color: #8C5F00; border: 1px solid rgba(244,168,0,0.25); }
+  .badge-grey { background: var(--cloud); color: var(--steel); border: 1px solid var(--mist); }
+  .badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* Progress — hemispheric */
+  .progress-track {
+    position: relative;
+    height: 6px;
+    background: var(--cloud);
+    border-radius: 999px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 1px rgba(15,20,25,0.06);
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--gel-blue);
+    border-radius: 999px;
+    box-shadow: var(--inner-gloss);
+    position: relative;
+  }
+  .progress-fill::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0;
+    width: 12px; height: 100%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.6), transparent 70%);
+  }
+
+  /* Tab */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--mist);
+    margin-bottom: var(--s-4);
+  }
+  .tab {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--steel);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 140ms ease;
+    font-family: var(--font-sans);
+  }
+  .tab:hover { color: var(--graphite); }
+  .tab.active { color: var(--aqua-700); border-bottom-color: var(--aqua-500); }
+
+  /* =========================================================
+     ERROR HANDLING
+     ========================================================= */
+
+  /* Severity banner — used for inline page-level messages */
+  .banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s-3);
+    padding: 14px 16px 14px 20px;
+    border-radius: var(--r-8);
+    border: 1px solid;
+    position: relative;
+    overflow: hidden;
+    background: var(--white);
+  }
+  .banner::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: currentColor;
+  }
+  .banner-icon {
+    width: 22px; height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: var(--inner-gloss);
+    margin-top: 1px;
+  }
+  .banner-body {
+    flex: 1;
+    min-width: 0;
+    color: var(--graphite);
+  }
+  .banner-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+    margin: 0 0 2px 0;
+    line-height: 1.35;
+  }
+  .banner-msg {
+    font-size: 13px;
+    color: var(--steel);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .banner-msg a {
+    color: var(--aqua-600);
+    text-decoration: none;
+    border-bottom: 1px solid var(--aqua-200);
+  }
+  .banner-action {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 500;
+    color: currentColor;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: var(--r-8);
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all 140ms ease;
+    flex-shrink: 0;
+    align-self: center;
+    opacity: 0.85;
+  }
+  .banner-action:hover { opacity: 1; transform: translateY(-1px); }
+  .banner-dismiss {
+    width: 24px; height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--silver);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    border-radius: var(--r-4);
+    flex-shrink: 0;
+    transition: all 140ms ease;
+  }
+  .banner-dismiss:hover { color: var(--graphite); background: var(--cloud); }
+
+  .banner-error    { background: var(--danger-50);  border-color: var(--danger-100);  color: var(--danger-700); }
+  .banner-error    .banner-icon { background: var(--gel-red); border: 1px solid var(--danger-700); }
+  .banner-warning  { background: var(--warning-50); border-color: var(--warning-100); color: var(--warning-700); }
+  .banner-warning  .banner-icon { background: linear-gradient(180deg, #FBD074, #D89400); border: 1px solid var(--warning-700); color: var(--warning-700); }
+  .banner-success  { background: var(--success-50); border-color: var(--success-100); color: var(--success-700); }
+  .banner-success  .banner-icon { background: linear-gradient(180deg, #4FC18A, #008855); border: 1px solid var(--success-700); }
+  .banner-info     { background: var(--aqua-50);    border-color: var(--aqua-100);    color: var(--aqua-700); }
+  .banner-info     .banner-icon { background: var(--gel-blue); border: 1px solid var(--aqua-700); }
+
+  /* Field-level error treatment */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--graphite);
+    letter-spacing: -0.005em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .field-label .req { color: var(--danger-500); }
+  .field-help {
+    font-size: 12px;
+    color: var(--steel);
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .field-help.is-error { color: var(--danger-700); }
+  .field-help.is-warning { color: var(--warning-700); }
+  .field-help.is-success { color: var(--success-700); }
+  .field-help-icon {
+    width: 14px; height: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .input.is-error {
+    border-color: var(--danger-500);
+    box-shadow: 0 0 0 3px rgba(229,57,53,0.15), inset 0 1px 0 rgba(15,20,25,0.02);
+  }
+  .input.is-error:focus {
+    border-color: var(--danger-500);
+    box-shadow: 0 0 0 3px rgba(229,57,53,0.25), inset 0 1px 0 rgba(15,20,25,0.02);
+  }
+  .input.is-warning { border-color: var(--warning-500); }
+  .input.is-success { border-color: var(--success-500); }
+
+  /* Toast — floating notification */
+  .toast-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    max-width: 380px;
+  }
+  .toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s-3);
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: 12px 14px 12px 16px;
+    box-shadow: var(--el-3);
+    position: relative;
+    overflow: hidden;
+    min-width: 320px;
+  }
+  .toast::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--toast-color, var(--aqua-500));
+  }
+  .toast::after {
+    content: "";
+    position: absolute;
+    left: 4px; right: 0; bottom: 0;
+    height: 2px;
+    background: var(--toast-color, var(--aqua-500));
+    opacity: 0.3;
+    width: var(--toast-progress, 60%);
+  }
+  .toast--error { --toast-color: var(--danger-500); }
+  .toast--warning { --toast-color: var(--warning-500); }
+  .toast--success { --toast-color: var(--success-500); }
+  .toast--info { --toast-color: var(--aqua-500); }
+  .toast-icon {
+    width: 22px; height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: var(--inner-gloss);
+    margin-top: 1px;
+  }
+  .toast--error .toast-icon { background: var(--gel-red); border: 1px solid var(--danger-700); }
+  .toast--warning .toast-icon { background: linear-gradient(180deg, #FBD074, #D89400); border: 1px solid var(--warning-700); color: var(--warning-700); }
+  .toast--success .toast-icon { background: linear-gradient(180deg, #4FC18A, #008855); border: 1px solid var(--success-700); }
+  .toast--info .toast-icon { background: var(--gel-blue); border: 1px solid var(--aqua-700); }
+  .toast-body { flex: 1; min-width: 0; }
+  .toast-title { font-size: 13px; font-weight: 500; color: var(--ink); margin: 0 0 2px 0; }
+  .toast-msg { font-size: 12px; color: var(--steel); margin: 0; line-height: 1.45; }
+  .toast-dismiss {
+    border: none;
+    background: transparent;
+    color: var(--silver);
+    cursor: pointer;
+    width: 20px; height: 20px;
+    border-radius: var(--r-4);
+    font-size: 14px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .toast-dismiss:hover { color: var(--graphite); background: var(--cloud); }
+
+  /* Empty / error state in a card */
+  .state-card {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-9) var(--s-7);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-3);
+  }
+  .state-glyph {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: var(--s-2);
+    box-shadow: var(--el-1), var(--inner-gloss);
+  }
+  .state-glyph.empty { background: var(--gel-white); border: 1px solid var(--mist); }
+  .state-glyph.error { background: var(--danger-50); border: 1px solid var(--danger-100); }
+  .state-glyph.warning { background: var(--warning-50); border: 1px solid var(--warning-100); }
+  .state-title {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .state-msg {
+    font-size: 13px;
+    color: var(--steel);
+    margin: 0 0 var(--s-3) 0;
+    max-width: 320px;
+    line-height: 1.5;
+  }
+  .state-actions { display: flex; gap: var(--s-3); }
+
+  /* Destructive confirmation modal */
+  .modal-stage {
+    background: var(--snow);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-16);
+    padding: var(--s-9) var(--s-7);
+    background-image: var(--pinstripe);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 360px;
+  }
+  .modal {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    box-shadow: var(--el-4);
+    width: 100%;
+    max-width: 440px;
+    overflow: hidden;
+  }
+  .modal-head {
+    padding: var(--s-6) var(--s-6) var(--s-3) var(--s-6);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-3);
+  }
+  .modal-icon {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--danger-50);
+    border: 1px solid var(--danger-100);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--danger-600);
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: var(--inner-gloss);
+  }
+  .modal-title {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.015em;
+    margin: 0;
+    line-height: 1.3;
+  }
+  .modal-body {
+    padding: 0 var(--s-6) var(--s-6) var(--s-6);
+    font-size: 14px;
+    color: var(--steel);
+    line-height: 1.55;
+  }
+  .modal-body strong { color: var(--ink); font-weight: 500; }
+  .modal-foot {
+    background: var(--snow);
+    border-top: 1px solid var(--mist);
+    padding: 12px var(--s-5);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-3);
+  }
+  .btn-danger {
+    background: var(--gel-red);
+    color: var(--white);
+    border-color: var(--danger-700);
+    box-shadow: var(--el-1), var(--inner-gloss);
+  }
+  .btn-danger:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--el-2), var(--inner-gloss);
+    filter: brightness(1.06);
+  }
+
+  /* 404 / system error page */
+  .errorpage {
+    background: var(--snow);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-16);
+    padding: var(--s-11) var(--s-8);
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-9);
+    align-items: center;
+    min-height: 480px;
+  }
+  .errorpage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--pinstripe);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .errorpage-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--danger-700);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-bottom: var(--s-5);
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    position: relative;
+  }
+  .errorpage-code .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--danger-500);
+    box-shadow: 0 0 0 3px rgba(229,57,53,0.18);
+  }
+  .errorpage-title {
+    font-size: clamp(40px, 6vw, 72px);
+    font-weight: 200;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    margin: 0 0 var(--s-5) 0;
+    position: relative;
+  }
+  .errorpage-title em {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 300;
+    color: var(--danger-600);
+  }
+  .errorpage-msg {
+    font-size: 16px;
+    color: var(--steel);
+    line-height: 1.55;
+    margin: 0 0 var(--s-7) 0;
+    max-width: 380px;
+    position: relative;
+  }
+  .errorpage-actions { display: flex; gap: var(--s-3); position: relative; }
+  .errorpage-meta {
+    margin-top: var(--s-7);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--silver);
+    letter-spacing: 0.04em;
+    position: relative;
+  }
+  .errorpage-meta span { color: var(--steel); }
+
+  .errorpage-visual {
+    position: relative;
+    height: 100%;
+    min-height: 320px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    filter: saturate(0.4);
+    opacity: 0.92;
+  }
+  .errorpage-visual .dome-screen {
+    transform: rotate(-14deg) translateX(-32px) translateY(8px);
+    width: 240px; height: 170px;
+  }
+  .errorpage-visual .dome-screen::before {
+    background: linear-gradient(160deg, #6B7785 0%, #2D3640 60%, #0F1419 100%);
+  }
+  .errorpage-visual .dome-screen::after {
+    content: "—";
+    color: rgba(255,255,255,0.4);
+    font-family: var(--font-mono);
+    font-size: 28px;
+    bottom: 50%;
+    transform: translateY(50%);
+  }
+  .errorpage-visual .dome-arm { transform: translateX(-20px); }
+  .errorpage-visual .dome-base::after {
+    background: radial-gradient(ellipse at 30% 30%, #888, #444);
+    box-shadow: 0 0 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  @media (max-width: 1080px) {
+    .errorpage { grid-template-columns: 1fr; gap: var(--s-7); }
+    .errorpage-visual { min-height: 240px; }
+  }
+
+  /* =========================================================
+     APPLICATION PREVIEW
+     ========================================================= */
+  .app-preview {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-16);
+    overflow: hidden;
+    box-shadow: var(--el-3);
+    display: grid;
+    grid-template-columns: 220px 1fr 320px;
+    min-height: 620px;
+  }
+  .app-chrome {
+    grid-column: 1 / -1;
+    background: var(--gel-white);
+    border-bottom: 1px solid var(--mist);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: var(--inner-gloss);
+  }
+  .app-dots { display: flex; gap: 6px; }
+  .app-dots span {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--mist);
+    box-shadow: inset 0 1px 1px rgba(15,20,25,0.1);
+  }
+  .app-dots span:nth-child(1) { background: radial-gradient(circle at 30% 30%, #FF8B85, #DC4239); }
+  .app-dots span:nth-child(2) { background: radial-gradient(circle at 30% 30%, #FFD075, #E8A300); }
+  .app-dots span:nth-child(3) { background: radial-gradient(circle at 30% 30%, #88E597, #2BAF3F); }
+  .app-url {
+    flex: 1;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    background: var(--white);
+    padding: 4px 12px;
+    border-radius: var(--r-full);
+    border: 1px solid var(--mist);
+    max-width: 360px;
+    margin: 0 auto;
+  }
+
+  .app-sidebar {
+    background: var(--snow);
+    border-right: 1px solid var(--mist);
+    padding: var(--s-6) var(--s-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+  }
+  .app-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    margin-bottom: var(--s-5);
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+  }
+  .app-section-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--silver);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 12px 10px 6px 10px;
+  }
+  .app-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--r-8);
+    font-size: 13px;
+    color: var(--graphite);
+    cursor: pointer;
+    transition: background 140ms ease;
+  }
+  .app-nav-item:hover { background: var(--cloud); }
+  .app-nav-item.active {
+    background: var(--gel-blue);
+    color: var(--white);
+    box-shadow: var(--el-1), var(--inner-gloss);
+    border: 1px solid var(--aqua-700);
+  }
+  .app-nav-icon {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    background: currentColor;
+    opacity: 0.6;
+    flex-shrink: 0;
+  }
+  .app-nav-item.active .app-nav-icon { opacity: 0.9; }
+
+  .app-main {
+    padding: var(--s-7);
+    overflow: hidden;
+  }
+  .app-breadcrumb {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    letter-spacing: 0.04em;
+    margin-bottom: var(--s-3);
+  }
+  .app-breadcrumb span { color: var(--aqua-600); }
+  .app-title {
+    font-size: 32px;
+    font-weight: 300;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin: 0 0 var(--s-2) 0;
+    line-height: 1.1;
+  }
+  .app-title em {
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--aqua-600);
+  }
+  .app-subtitle {
+    font-size: 14px;
+    color: var(--steel);
+    margin: 0 0 var(--s-6) 0;
+    max-width: 560px;
+    line-height: 1.5;
+  }
+
+  .app-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s-3);
+    margin-bottom: var(--s-6);
+  }
+  .stat {
+    background: var(--snow);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-4);
+  }
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--steel);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 28px;
+    font-weight: 300;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .stat-unit { font-size: 13px; font-weight: 400; color: var(--steel); }
+  .stat-trend {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--success);
+    margin-top: 6px;
+  }
+
+  .lesson-list {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    overflow: hidden;
+  }
+  .lesson-list-header {
+    background: var(--snow);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--mist);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-image: var(--pinstripe);
+  }
+  .lesson-list-header h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .lesson-item {
+    display: grid;
+    grid-template-columns: 32px 1fr 100px 80px;
+    gap: var(--s-4);
+    padding: 14px 16px;
+    align-items: center;
+    border-bottom: 1px solid var(--mist);
+    transition: background 140ms ease;
+    cursor: pointer;
+  }
+  .lesson-item:last-child { border-bottom: none; }
+  .lesson-item:hover { background: var(--snow); }
+  .lesson-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--silver);
+    letter-spacing: 0.04em;
+  }
+  .lesson-title {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+  }
+  .lesson-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+  }
+  .lesson-status { display: flex; justify-content: flex-end; }
+
+  .check-icon {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--gel-blue);
+    color: var(--white);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    box-shadow: var(--inner-gloss);
+    border: 1px solid var(--aqua-700);
+  }
+  .check-icon.empty {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    box-shadow: none;
+    color: transparent;
+  }
+
+  /* Right rail — current lesson */
+  .app-rail {
+    background: var(--snow);
+    border-left: 1px solid var(--mist);
+    padding: var(--s-7) var(--s-5);
+    background-image: var(--pinstripe);
+  }
+  .rail-card {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    overflow: hidden;
+    box-shadow: var(--el-2);
+  }
+  .rail-cover {
+    aspect-ratio: 16 / 9;
+    background:
+      radial-gradient(ellipse at 20% 20%, rgba(255,255,255,0.5), transparent 50%),
+      linear-gradient(160deg, #4F8FFF 0%, #1E66E8 50%, #0B47B8 100%);
+    position: relative;
+    overflow: hidden;
+  }
+  .rail-cover::after {
+    content: "▶";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 44px; height: 44px;
+    background: rgba(255,255,255,0.95);
+    color: var(--aqua-600);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    box-shadow: var(--el-3), var(--inner-gloss);
+    padding-left: 3px;
+  }
+  .rail-body { padding: var(--s-5); }
+  .rail-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--aqua-600);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .rail-title {
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink);
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    margin: 0 0 var(--s-3) 0;
+  }
+  .rail-desc {
+    font-size: 13px;
+    color: var(--steel);
+    line-height: 1.55;
+    margin: 0 0 var(--s-4) 0;
+  }
+  .rail-meta {
+    display: flex;
+    gap: var(--s-4);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--steel);
+    margin-bottom: var(--s-4);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--mist);
+  }
+  .rail-meta strong { color: var(--ink); font-weight: 500; }
+
+  /* Mentor card */
+  .mentor-card {
+    margin-top: var(--s-5);
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-5);
+    box-shadow: var(--el-1);
+  }
+  .mentor-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    margin-bottom: var(--s-3);
+  }
+  .mentor-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--gel-blue);
+    box-shadow: var(--inner-gloss);
+    border: 1px solid var(--aqua-700);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--white);
+    font-weight: 500;
+    font-size: 13px;
+  }
+  .mentor-name { font-size: 13px; font-weight: 500; color: var(--ink); margin: 0; }
+  .mentor-role { font-family: var(--font-mono); font-size: 10px; color: var(--steel); margin: 0; letter-spacing: 0.04em; }
+  .mentor-msg {
+    font-size: 13px;
+    color: var(--graphite);
+    line-height: 1.55;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 300;
+    margin: 0;
+  }
+
+  /* =========================================================
+     MOTION
+     ========================================================= */
+  .motion-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--s-5);
+  }
+  .motion-card {
+    background: var(--white);
+    border: 1px solid var(--mist);
+    border-radius: var(--r-12);
+    padding: var(--s-6);
+    text-align: left;
+  }
+  .motion-name {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--aqua-700);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: var(--s-2);
+  }
+  .motion-spec {
+    font-size: 13px;
+    color: var(--steel);
+    line-height: 1.5;
+    font-family: var(--font-mono);
+  }
+  .motion-spec strong { color: var(--ink); display: block; font-weight: 500; margin-bottom: 4px; }
+
+  /* =========================================================
+     FOOTER
+     ========================================================= */
+  footer {
+    padding: var(--s-9) 0 var(--s-10) 0;
+    background: var(--white);
+  }
+  .footer-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--steel);
+    letter-spacing: 0.04em;
+  }
+  .footer-inner strong { color: var(--ink); font-weight: 500; }
+
+  /* =========================================================
+     RESPONSIVE
+     ========================================================= */
+  @media (max-width: 1080px) {
+    .hero-grid { grid-template-columns: 1fr; gap: var(--s-9); }
+    .hero-visual { height: 400px; }
+    .principles, .surfaces-grid { grid-template-columns: 1fr 1fr; }
+    .components-grid, .color-grid { grid-template-columns: 1fr; }
+    .app-preview { grid-template-columns: 1fr; }
+    .app-sidebar { display: none; }
+    .app-rail { display: none; }
+    .motion-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .container { padding: 0 20px; }
+    section { padding: var(--s-10) 0; }
+    .nav-links { display: none; }
+    .principles, .surfaces-grid, .motion-grid { grid-template-columns: 1fr; }
+    .type-row { grid-template-columns: 1fr; gap: var(--s-3); }
+    .app-stats { grid-template-columns: 1fr; }
+    .lesson-item { grid-template-columns: 24px 1fr 60px; }
+    .lesson-meta { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============== NAV ============== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="brand">
+      <div class="brand-dome">
+        <svg viewBox="0 0 24 24" width="22" height="22" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="brandGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#5C95FF"/>
+              <stop offset="100%" stop-color="#1452C8"/>
+            </linearGradient>
+            <radialGradient id="brandHi" cx="0.35" cy="0.3" r="0.6">
+              <stop offset="0%" stop-color="rgba(255,255,255,0.7)"/>
+              <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+            </radialGradient>
+          </defs>
+          <path d="M2 18 A 10 10 0 0 1 22 18 L 22 20 L 2 20 Z" fill="url(#brandGrad)"/>
+          <path d="M2 18 A 10 10 0 0 1 22 18 L 22 20 L 2 20 Z" fill="url(#brandHi)"/>
+        </svg>
+      </div>
+      <span>Lumen</span>
+    </div>
+    <div class="nav-links">
+      <a href="#principles">Principles</a>
+      <a href="#color">Color</a>
+      <a href="#type">Type</a>
+      <a href="#surfaces">Surfaces</a>
+      <a href="#components">Components</a>
+      <a href="#errors">Errors</a>
+      <a href="#preview">Preview</a>
+    </div>
+    <div class="nav-meta">v1.0 · 2026</div>
+  </div>
+</nav>
+
+<!-- ============== HERO ============== -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-eyebrow">
+          <span class="dot"></span>
+          A Design Language for Learning
+        </div>
+        <h1>Lumen<em>.</em></h1>
+        <p class="hero-tagline">
+          A learning interface that's <strong>quietly structured, openly luminous</strong> — borrowing Carbon's discipline and warming it with the optimism of a glossier era.
+        </p>
+        <div class="hero-meta">
+          <div><strong>System</strong>Lumen 1.0</div>
+          <div><strong>Lineage</strong>Carbon × Aqua</div>
+          <div><strong>Surface</strong>Web · iOS · Desktop</div>
+          <div><strong>Status</strong>Foundation Draft</div>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="dome-stage">
+          <div class="dome-screen"></div>
+          <div class="dome-arm"></div>
+          <div class="dome-base"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== PRINCIPLES ============== -->
+<section id="principles">
+  <div class="container">
+    <div class="section-label">01 — Principles</div>
+    <h2 class="section-title">Three commitments, held in <em>tension</em>.</h2>
+    <p class="section-lede">
+      Lumen sits between two impulses: the precision of an engineering tool and the warmth of an object you'd want on a desk. Every choice is calibrated against these three principles.
+    </p>
+    <div class="principles">
+      <div class="principle">
+        <div class="principle-num">P · 01</div>
+        <h3>Structured, not <em>stiff</em></h3>
+        <p>A 4-pixel grid. Strict typographic scale. Predictable spacing. The skeleton is rigid so the surface can be generous — softness is earned through structure, not added in spite of it.</p>
+      </div>
+      <div class="principle">
+        <div class="principle-num">P · 02</div>
+        <h3>Luminous, not <em>loud</em></h3>
+        <p>One blue, used with intent. Subtle gradients where flatness would feel cold. Highlights that suggest the surface is illuminated from within — never a shout, always a glow.</p>
+      </div>
+      <div class="principle">
+        <div class="principle-num">P · 03</div>
+        <h3>Honest, not <em>literal</em></h3>
+        <p>The hemispheric forms, chrome details, and gel surfaces are gestures — not reproductions. We reference an era of optimism without dressing up as it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== COLOR ============== -->
+<section id="color">
+  <div class="container">
+    <div class="section-label">02 — Color</div>
+    <h2 class="section-title">A spectrum of <em>blues</em>, anchored in honest greys.</h2>
+    <p class="section-lede">
+      Aqua is the single voice of brand and action. Neutrals do everything else — backgrounds, text, structure — and earn their depth from how they layer, not from saturation.
+    </p>
+
+    <div class="color-grid">
+      <div class="color-group">
+        <h4>Aqua — Primary Spectrum</h4>
+        <div class="swatch-row">
+          <div class="swatch" data-light style="background:#EAF2FE"><span class="name">aqua-50</span><span class="hex">#EAF2FE</span></div>
+          <div class="swatch" data-light style="background:#D2E2FE"><span class="name">aqua-100</span><span class="hex">#D2E2FE</span></div>
+          <div class="swatch" data-light style="background:#A6C5FE"><span class="name">aqua-200</span><span class="hex">#A6C5FE</span></div>
+          <div class="swatch" data-dark style="background:#6FA1FB"><span class="name">aqua-300</span><span class="hex">#6FA1FB</span></div>
+          <div class="swatch" data-dark style="background:#4F8FFF"><span class="name">aqua-400</span><span class="hex">#4F8FFF</span></div>
+          <div class="swatch" data-dark style="background:#1E66E8"><span class="name">aqua-500</span><span class="hex">#1E66E8</span></div>
+          <div class="swatch" data-dark style="background:#0B47B8"><span class="name">aqua-700</span><span class="hex">#0B47B8</span></div>
+          <div class="swatch" data-dark style="background:#073480"><span class="name">aqua-800</span><span class="hex">#073480</span></div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#1E66E8"></div>
+          <div class="token-name">--aqua-500 · Primary</div>
+          <div class="token-val">Action, focus, brand</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#4F8FFF"></div>
+          <div class="token-name">--aqua-400 · Glow</div>
+          <div class="token-val">Hover, highlight</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#0B47B8"></div>
+          <div class="token-name">--aqua-700 · Deep</div>
+          <div class="token-val">Headings, emphasis</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:linear-gradient(180deg,#5C95FF,#1452C8)"></div>
+          <div class="token-name">--gel-blue · Surface</div>
+          <div class="token-val">Primary buttons, active states</div>
+        </div>
+      </div>
+
+      <div class="color-group">
+        <h4>Neutrals — Cool Spectrum</h4>
+        <div class="swatch-row">
+          <div class="swatch" data-light style="background:#FFFFFF;border-right:1px solid var(--mist)"><span class="name">white</span><span class="hex">#FFFFFF</span></div>
+          <div class="swatch" data-light style="background:#F6F8FB"><span class="name">snow</span><span class="hex">#F6F8FB</span></div>
+          <div class="swatch" data-light style="background:#ECF0F5"><span class="name">cloud</span><span class="hex">#ECF0F5</span></div>
+          <div class="swatch" data-light style="background:#DCE2EA"><span class="name">mist</span><span class="hex">#DCE2EA</span></div>
+          <div class="swatch" data-light style="background:#B8C0CB"><span class="name">silver</span><span class="hex">#B8C0CB</span></div>
+          <div class="swatch" data-dark style="background:#6B7785"><span class="name">steel</span><span class="hex">#6B7785</span></div>
+          <div class="swatch" data-dark style="background:#2D3640"><span class="name">graphite</span><span class="hex">#2D3640</span></div>
+          <div class="swatch" data-dark style="background:#0F1419"><span class="name">ink</span><span class="hex">#0F1419</span></div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#F6F8FB"></div>
+          <div class="token-name">--snow · Page</div>
+          <div class="token-val">Default page background</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#0F1419"></div>
+          <div class="token-name">--ink · High emphasis</div>
+          <div class="token-val">Headlines, key data</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:#6B7785"></div>
+          <div class="token-name">--steel · Secondary</div>
+          <div class="token-val">Supporting text, metadata</div>
+        </div>
+        <div class="color-token">
+          <div class="token-chip" style="background:linear-gradient(180deg,#FFFFFF,#C9D1DB)"></div>
+          <div class="token-name">--chrome · Accent</div>
+          <div class="token-val">Used sparingly, for detail only</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== TYPOGRAPHY ============== -->
+<section id="type">
+  <div class="container">
+    <div class="section-label">03 — Typography</div>
+    <h2 class="section-title">One family, three <em>voices</em>.</h2>
+    <p class="section-lede">
+      IBM Plex carries the system: Sans for the structural voice, Mono for the technical voice, Serif Italic for the human voice. The family ships in 100+ weights — we use a small, opinionated subset.
+    </p>
+
+    <div class="type-stack">
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Display</strong>
+          Plex Sans · 200<br>
+          64 / 0.92 / -0.04em
+        </div>
+        <div class="type-sample t-display">A different way<br>to <em>learn well</em>.</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Heading 1</strong>
+          Plex Sans · 300<br>
+          40 / 1.1 / -0.025em
+        </div>
+        <div class="type-sample t-h1">Foundations of statistical thinking</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Heading 2</strong>
+          Plex Sans · 400<br>
+          28 / 1.2 / -0.015em
+        </div>
+        <div class="type-sample t-h2">Confidence intervals, demystified</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Heading 3</strong>
+          Plex Sans · 500<br>
+          20 / 1.3 / -0.005em
+        </div>
+        <div class="type-sample t-h3">What the Wilson interval actually does</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Editorial</strong>
+          Plex Serif Italic · 300<br>
+          28 / 1.3 / -0.01em
+        </div>
+        <div class="type-sample t-serif">Used for course titles and humane voice — never for UI labels.</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Body Large</strong>
+          Plex Sans · 400<br>
+          17 / 1.55 / 0
+        </div>
+        <div class="type-sample t-body-l">For lesson copy and long-form reading. Generous line height keeps the page breathable; the cool grey background reduces glare without ever feeling clinical.</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Body</strong>
+          Plex Sans · 400<br>
+          15 / 1.55 / 0
+        </div>
+        <div class="type-sample t-body">The default voice of the interface. Used for descriptions, helper text, and component-level copy.</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Mono</strong>
+          Plex Mono · 400<br>
+          13 / 1.5 / +0.02em
+        </div>
+        <div class="type-sample t-mono">v1.0.0 — released 28.04.2026 — 32 components — 4px grid</div>
+      </div>
+      <div class="type-row">
+        <div class="type-spec">
+          <strong>Caption</strong>
+          Plex Sans · 400<br>
+          13 / 1.5 / 0
+        </div>
+        <div class="type-sample t-caption">Captions, footnotes, and metadata. Always rendered in steel grey to recede.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== SURFACES ============== -->
+<section id="surfaces">
+  <div class="container">
+    <div class="section-label">04 — Surfaces</div>
+    <h2 class="section-title">Depth without <em>weight</em>.</h2>
+    <p class="section-lede">
+      Six surface tokens, each engineered for a specific job. Shadows are cool-tinted and soft. Two specialty surfaces — gel and chrome — appear sparingly, where the system needs to feel like an object you can touch.
+    </p>
+
+    <div class="surfaces-grid">
+      <div class="surface s-flat">
+        <div class="surface-label">01 · Flat</div>
+        <div class="surface-name">Page</div>
+        <div class="surface-spec">--snow · 1px mist border</div>
+      </div>
+      <div class="surface s-raised">
+        <div class="surface-label">02 · Raised</div>
+        <div class="surface-name">Card</div>
+        <div class="surface-spec">--white · shadow-2</div>
+      </div>
+      <div class="surface s-floating">
+        <div class="surface-label">03 · Floating</div>
+        <div class="surface-name">Popover</div>
+        <div class="surface-spec">--white · shadow-3</div>
+      </div>
+      <div class="surface s-overlay">
+        <div class="surface-label">04 · Overlay</div>
+        <div class="surface-name">Glass</div>
+        <div class="surface-spec">blur(16px) · saturate(160%)</div>
+      </div>
+      <div class="surface s-gel">
+        <div class="surface-label">05 · Gel</div>
+        <div class="surface-name">Action</div>
+        <div class="surface-spec">--gel-blue · inner gloss</div>
+      </div>
+      <div class="surface s-chrome">
+        <div class="surface-label">06 · Chrome</div>
+        <div class="surface-name">Accent</div>
+        <div class="surface-spec">--chrome · use sparingly</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== COMPONENTS ============== -->
+<section id="components">
+  <div class="container">
+    <div class="section-label">05 — Components</div>
+    <h2 class="section-title">A small, careful <em>vocabulary</em>.</h2>
+    <p class="section-lede">
+      The atomic pieces of a Lumen interface. Each component has one job and a small set of variants — restraint at the foundation pays compounding dividends as the system scales.
+    </p>
+
+    <div class="components-grid">
+      <div class="comp-card">
+        <h4>Buttons</h4>
+        <div class="comp-row">
+          <span class="comp-label">Primary</span>
+          <button class="btn btn-primary">Continue lesson</button>
+          <button class="btn btn-primary">Save progress</button>
+        </div>
+        <div class="comp-row">
+          <span class="comp-label">Secondary</span>
+          <button class="btn btn-secondary">Skip for now</button>
+          <button class="btn btn-secondary">Open notes</button>
+        </div>
+        <div class="comp-row">
+          <span class="comp-label">Ghost</span>
+          <button class="btn btn-ghost">Show transcript</button>
+          <button class="btn btn-ghost">View answer</button>
+        </div>
+        <div class="comp-row">
+          <span class="comp-label">Link</span>
+          <a class="btn btn-link" href="#">Read the syllabus →</a>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Inputs</h4>
+        <div class="comp-row" style="flex-direction:column;align-items:stretch;gap:10px">
+          <input class="input" placeholder="Search the catalogue…"/>
+          <input class="input" value="nick@fifthvertex.com"/>
+        </div>
+        <div class="comp-row" style="margin-top:var(--s-5)">
+          <span class="comp-label">Toggle</span>
+          <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          <span style="font-size:13px;color:var(--steel)">Auto-advance lessons</span>
+        </div>
+        <div class="comp-row">
+          <span class="comp-label" style="visibility:hidden">.</span>
+          <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          <span style="font-size:13px;color:var(--steel)">Captions on by default</span>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Badges</h4>
+        <div class="comp-row">
+          <span class="badge badge-blue"><span class="badge-dot"></span>In progress</span>
+          <span class="badge badge-green"><span class="badge-dot"></span>Completed</span>
+          <span class="badge badge-amber"><span class="badge-dot"></span>Review due</span>
+          <span class="badge badge-grey"><span class="badge-dot"></span>Locked</span>
+        </div>
+        <div class="comp-row" style="margin-top:var(--s-4)">
+          <span class="badge badge-blue">v1.0</span>
+          <span class="badge badge-grey">Beta</span>
+          <span class="badge badge-green">New</span>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Progress</h4>
+        <div style="margin-bottom:var(--s-4)">
+          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--steel);margin-bottom:6px;">
+            <span>Module 02 · Sampling</span><span>72%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:72%"></div></div>
+        </div>
+        <div style="margin-bottom:var(--s-4)">
+          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--steel);margin-bottom:6px;">
+            <span>Module 03 · Inference</span><span>28%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:28%"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--steel);margin-bottom:6px;">
+            <span>Module 04 · Bayes</span><span>0%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" style="width:3%"></div></div>
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Tabs</h4>
+        <div class="tabs">
+          <div class="tab active">Lessons</div>
+          <div class="tab">Exercises</div>
+          <div class="tab">Resources</div>
+          <div class="tab">Discussion</div>
+        </div>
+        <div style="font-size:13px;color:var(--steel);line-height:1.6">
+          Tabs use a 2px aqua underline on the active state. The whole row sits on a 1px mist divider; the active underline overlaps it cleanly.
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Focus States</h4>
+        <div class="comp-row">
+          <input class="input" value="Focused input" style="border-color:var(--aqua-500);box-shadow:0 0 0 3px rgba(30,102,232,0.18)" readonly/>
+        </div>
+        <div class="comp-row">
+          <button class="btn btn-secondary" style="box-shadow:0 0 0 3px rgba(30,102,232,0.25), var(--inner-gloss)">Focused button</button>
+        </div>
+        <div style="font-size:13px;color:var(--steel);line-height:1.6;margin-top:var(--s-3)">
+          Every interactive element gets a 3px halo at 18% aqua opacity. Visible against any background — including the gel and chrome surfaces.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== ERRORS ============== -->
+<section id="errors">
+  <div class="container">
+    <div class="section-label">06 — When things go wrong</div>
+    <h2 class="section-title">A grammar for <em>failure</em>.</h2>
+    <p class="section-lede">
+      Most interfaces treat errors as exceptions — bolted-on warnings in red. Lumen treats them as a first-class voice of the system: structured, hierarchical, and always paired with a way out. Four severities, four densities, one consistent tone.
+    </p>
+
+    <!-- The error principle -->
+    <div class="principles" style="grid-template-columns: 1fr; margin-bottom: var(--s-9);">
+      <div class="principle">
+        <div class="principle-num">P · 04</div>
+        <h3>Errors are <em>conversations</em>, not warnings</h3>
+        <p>Every error answers three questions in order: <strong style="color:var(--ink);font-weight:500">what happened</strong>, <strong style="color:var(--ink);font-weight:500">what it means</strong>, <strong style="color:var(--ink);font-weight:500">what you can do next</strong>. If we can't answer all three, we shouldn't surface the error to the user. Red is reserved for failures the user can act on — never for ambient noise.</p>
+      </div>
+    </div>
+
+    <!-- Severity hierarchy -->
+    <div class="comp-card" style="margin-bottom: var(--s-7);">
+      <h4>Severity — Four voices</h4>
+      <div style="display:flex;flex-direction:column;gap:var(--s-3)">
+
+        <div class="banner banner-error">
+          <div class="banner-icon">!</div>
+          <div class="banner-body">
+            <p class="banner-title">We couldn't save your progress</p>
+            <p class="banner-msg">Your last 4 minutes of activity are still in the browser. <a href="#">Retry now</a> or wait — we'll try again automatically in 30 seconds.</p>
+          </div>
+          <button class="banner-action">Retry</button>
+          <button class="banner-dismiss" aria-label="Dismiss">×</button>
+        </div>
+
+        <div class="banner banner-warning">
+          <div class="banner-icon">!</div>
+          <div class="banner-body">
+            <p class="banner-title">Your subscription ends in 3 days</p>
+            <p class="banner-msg">You'll keep access to completed lessons. New courses and your AI mentor will pause until you renew.</p>
+          </div>
+          <button class="banner-action">Renew</button>
+          <button class="banner-dismiss" aria-label="Dismiss">×</button>
+        </div>
+
+        <div class="banner banner-info">
+          <div class="banner-icon">i</div>
+          <div class="banner-body">
+            <p class="banner-title">A new lesson was added to this module</p>
+            <p class="banner-msg">"Standard error, intuitively" was published yesterday and slots in between lessons 2 and 3.</p>
+          </div>
+          <button class="banner-dismiss" aria-label="Dismiss">×</button>
+        </div>
+
+        <div class="banner banner-success">
+          <div class="banner-icon">✓</div>
+          <div class="banner-body">
+            <p class="banner-title">Module 02 complete — well done</p>
+            <p class="banner-msg">You scored 94% on the practice set. Your mastery for this module is now <strong style="color:var(--success-700)">A−</strong>.</p>
+          </div>
+          <button class="banner-dismiss" aria-label="Dismiss">×</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Field validation -->
+    <div class="components-grid" style="margin-bottom: var(--s-7);">
+      <div class="comp-card">
+        <h4>Field Validation</h4>
+        <div style="display:flex;flex-direction:column;gap:var(--s-5)">
+
+          <div class="field">
+            <label class="field-label">Email <span class="req">*</span></label>
+            <input class="input is-error" value="nick@fifthvertex" />
+            <div class="field-help is-error">
+              <svg class="field-help-icon" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.15"/><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1"/><path d="M7 4 V 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10" r="0.7" fill="currentColor"/></svg>
+              <span>This doesn't look like a complete email — we expected a domain after the "@".</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Password <span class="req">*</span></label>
+            <input class="input is-warning" type="password" value="abc12345" />
+            <div class="field-help is-warning">
+              <svg class="field-help-icon" viewBox="0 0 14 14" fill="none"><path d="M7 1 L 13 12 L 1 12 Z" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><path d="M7 5 V 8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="10.4" r="0.7" fill="currentColor"/></svg>
+              <span>This password is fine, but adding a symbol would make it stronger.</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Display name</label>
+            <input class="input is-success" value="nick.adelaide" />
+            <div class="field-help is-success">
+              <svg class="field-help-icon" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="1"/><path d="M4 7 L 6 9 L 10 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+              <span>Available — and reads nicely.</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="comp-card">
+        <h4>Toasts — Transient</h4>
+        <div class="toast-stack">
+          <div class="toast toast--error" style="--toast-progress: 35%">
+            <div class="toast-icon">!</div>
+            <div class="toast-body">
+              <p class="toast-title">Connection lost</p>
+              <p class="toast-msg">Reconnecting in 3 seconds…</p>
+            </div>
+            <button class="toast-dismiss" aria-label="Dismiss">×</button>
+          </div>
+          <div class="toast toast--success" style="--toast-progress: 85%">
+            <div class="toast-icon">✓</div>
+            <div class="toast-body">
+              <p class="toast-title">Notes saved</p>
+              <p class="toast-msg">Available offline on this device.</p>
+            </div>
+            <button class="toast-dismiss" aria-label="Dismiss">×</button>
+          </div>
+          <div class="toast toast--info" style="--toast-progress: 60%">
+            <div class="toast-icon">i</div>
+            <div class="toast-body">
+              <p class="toast-title">Paige is ready when you are</p>
+              <p class="toast-msg">Ask a question about this lesson.</p>
+            </div>
+            <button class="toast-dismiss" aria-label="Dismiss">×</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--steel);line-height:1.5;margin-top:var(--s-4);font-family:var(--font-mono)">
+          <strong style="color:var(--ink);font-weight:500;display:block;margin-bottom:4px">DURATION</strong>
+          info / success: 4s &nbsp;·&nbsp; warning: 6s &nbsp;·&nbsp; error: persistent
+        </div>
+      </div>
+    </div>
+
+    <!-- Component-level states -->
+    <div class="comp-card" style="margin-bottom: var(--s-7);">
+      <h4>Component States — Empty / Error / Warning</h4>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-5)">
+
+        <div class="state-card">
+          <div class="state-glyph empty">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#6B7785" stroke-width="1.4">
+              <rect x="4" y="6" width="16" height="14" rx="2"/>
+              <path d="M4 10 H 20"/>
+              <path d="M9 14 H 15" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <h5 class="state-title">No lessons yet</h5>
+          <p class="state-msg">When your instructor publishes content for this module, it'll appear here.</p>
+          <div class="state-actions">
+            <button class="btn btn-secondary">Browse catalogue</button>
+          </div>
+        </div>
+
+        <div class="state-card">
+          <div class="state-glyph error">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#A11814" stroke-width="1.4">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 7 V 13" stroke-linecap="round"/>
+              <circle cx="12" cy="16.5" r="1" fill="#A11814"/>
+            </svg>
+          </div>
+          <h5 class="state-title">We couldn't load this module</h5>
+          <p class="state-msg">The server returned an error. Your progress is safe — try again, or skip ahead while we recover.</p>
+          <div class="state-actions">
+            <button class="btn btn-primary">Retry</button>
+            <button class="btn btn-secondary">Skip module</button>
+          </div>
+        </div>
+
+        <div class="state-card">
+          <div class="state-glyph warning">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#8C5F00" stroke-width="1.4">
+              <path d="M12 4 L 21 19 H 3 Z" stroke-linejoin="round"/>
+              <path d="M12 10 V 14" stroke-linecap="round"/>
+              <circle cx="12" cy="16.5" r="1" fill="#8C5F00"/>
+            </svg>
+          </div>
+          <h5 class="state-title">You're offline</h5>
+          <p class="state-msg">Cached lessons still work. Notes and progress will sync when you reconnect.</p>
+          <div class="state-actions">
+            <button class="btn btn-secondary">View cached</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Destructive confirmation -->
+    <div class="components-grid" style="margin-bottom: var(--s-7);">
+      <div>
+        <div class="comp-card" style="height:100%">
+          <h4>Destructive Confirmation</h4>
+          <div style="font-size:13px;color:var(--steel);line-height:1.6;margin-bottom:var(--s-4)">
+            Used only when an action is irreversible. The pattern is deliberately heavier than other modals so it can't be dismissed by reflex.
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--steel);line-height:1.7;border-top:1px solid var(--mist);padding-top:var(--s-4)">
+            <strong style="color:var(--ink);font-weight:500;display:block;margin-bottom:6px;letter-spacing:0.1em;text-transform:uppercase">RULES</strong>
+            · The destructive action is on the <strong style="color:var(--danger-700);font-weight:500">right</strong>.<br>
+            · Cancel is the <strong style="color:var(--ink);font-weight:500">default</strong> focus.<br>
+            · The body names the consequence in plain language.<br>
+            · No "Are you sure?" — name the thing being lost.
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="modal-stage">
+          <div class="modal">
+            <div class="modal-head">
+              <div class="modal-icon">!</div>
+              <h3 class="modal-title">Reset progress for Statistics 101?</h3>
+            </div>
+            <div class="modal-body">
+              You'll lose <strong>14 days of streak</strong>, your mastery grade of <strong>B+</strong>, and notes on 12 lessons. Completed lessons can be replayed but their grade history is permanently cleared.
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-secondary">Cancel</button>
+              <button class="btn btn-danger">Reset progress</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Full error page -->
+    <h3 style="font-size:22px;font-weight:400;letter-spacing:-0.015em;color:var(--ink);margin: var(--s-9) 0 var(--s-5) 0;">Full-page failure</h3>
+    <p style="font-size:14px;color:var(--steel);max-width:560px;margin:0 0 var(--s-5) 0;line-height:1.55">
+      When a route can't render at all, we keep the visual identity but desaturate it — the lamp is still there, the screen is just dark. Recovery actions are clearly the most important thing on the page.
+    </p>
+
+    <div class="errorpage">
+      <div>
+        <div class="errorpage-code">
+          <span class="dot"></span>
+          Error 404 · Lesson not found
+        </div>
+        <h2 class="errorpage-title">A lesson once <em>here</em>—<br>now somewhere else.</h2>
+        <p class="errorpage-msg">
+          The page you were looking for has moved, been retired, or never existed in the first place. Your progress and notes are unaffected.
+        </p>
+        <div class="errorpage-actions">
+          <button class="btn btn-primary">Back to my learning</button>
+          <button class="btn btn-secondary">Search the catalogue</button>
+        </div>
+        <div class="errorpage-meta">
+          Reference: <span>LMN-404-9F2A · 2026-04-28T14:22Z</span>
+        </div>
+      </div>
+      <div class="errorpage-visual">
+        <div class="dome-stage">
+          <div class="dome-screen"></div>
+          <div class="dome-arm"></div>
+          <div class="dome-base"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Copy guidelines -->
+    <div class="comp-card" style="margin-top: var(--s-7);">
+      <h4>Copy — How errors should sound</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-5);font-size:13px;line-height:1.55">
+        <div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--success-700);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px">✓ Lumen</div>
+          <ul style="margin:0;padding-left:18px;color:var(--graphite)">
+            <li style="margin-bottom:8px">"We couldn't save your progress."</li>
+            <li style="margin-bottom:8px">"This password is fine, but adding a symbol would make it stronger."</li>
+            <li style="margin-bottom:8px">"You'll lose 14 days of streak."</li>
+            <li>"The server returned an error. Try again, or skip ahead while we recover."</li>
+          </ul>
+        </div>
+        <div>
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--danger-700);letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px">✗ Not Lumen</div>
+          <ul style="margin:0;padding-left:18px;color:var(--steel)">
+            <li style="margin-bottom:8px">"Error: Save failed."</li>
+            <li style="margin-bottom:8px">"Invalid password."</li>
+            <li style="margin-bottom:8px">"Are you sure? This cannot be undone."</li>
+            <li>"Something went wrong. Please try again later."</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============== APPLICATION PREVIEW ============== -->
+<section id="preview">
+  <div class="container">
+    <div class="section-label">07 — In Practice</div>
+    <h2 class="section-title">The system at <em>work</em>.</h2>
+    <p class="section-lede">
+      A learning dashboard composed entirely of Lumen primitives. No special-case styling; every surface, type ramp, and interaction state comes from the foundation defined above.
+    </p>
+
+    <div class="app-preview">
+      <div class="app-chrome">
+        <div class="app-dots"><span></span><span></span><span></span></div>
+        <div class="app-url">lumen.app/learn/statistics-101</div>
+      </div>
+
+      <aside class="app-sidebar">
+        <div class="app-brand">
+          <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="sbGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#5C95FF"/>
+                <stop offset="100%" stop-color="#1452C8"/>
+              </linearGradient>
+            </defs>
+            <path d="M2 18 A 10 10 0 0 1 22 18 L 22 20 L 2 20 Z" fill="url(#sbGrad)"/>
+          </svg>
+          Lumen
+        </div>
+        <div class="app-nav-item active">
+          <span class="app-nav-icon"></span>My Learning
+        </div>
+        <div class="app-nav-item">
+          <span class="app-nav-icon"></span>Catalogue
+        </div>
+        <div class="app-nav-item">
+          <span class="app-nav-icon"></span>Practice
+        </div>
+        <div class="app-nav-item">
+          <span class="app-nav-icon"></span>Community
+        </div>
+
+        <div class="app-section-label">In progress</div>
+        <div class="app-nav-item"><span class="app-nav-icon"></span>Statistics 101</div>
+        <div class="app-nav-item"><span class="app-nav-icon"></span>SQL for Analysts</div>
+        <div class="app-nav-item"><span class="app-nav-icon"></span>Causal Inference</div>
+
+        <div class="app-section-label">Settings</div>
+        <div class="app-nav-item"><span class="app-nav-icon"></span>Account</div>
+        <div class="app-nav-item"><span class="app-nav-icon"></span>Notifications</div>
+      </aside>
+
+      <main class="app-main">
+        <div class="app-breadcrumb">My Learning <span>/</span> Statistics 101</div>
+        <h1 class="app-title">Foundations of <em>statistical</em> thinking</h1>
+        <p class="app-subtitle">A six-module pathway through descriptive statistics, sampling, and the logic of inference. Built around small problems and clear feedback loops.</p>
+
+        <div class="app-stats">
+          <div class="stat">
+            <div class="stat-label">Progress</div>
+            <div class="stat-value">68<span class="stat-unit">%</span></div>
+            <div class="stat-trend">↑ 12% this week</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Streak</div>
+            <div class="stat-value">14<span class="stat-unit">days</span></div>
+            <div class="stat-trend">Personal best</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Mastery</div>
+            <div class="stat-value">B+<span class="stat-unit">grade</span></div>
+            <div class="stat-trend" style="color:var(--steel)">Stable</div>
+          </div>
+        </div>
+
+        <div class="lesson-list">
+          <div class="lesson-list-header">
+            <h4>Module 02 — Sampling and uncertainty</h4>
+            <span class="badge badge-blue"><span class="badge-dot"></span>In progress</span>
+          </div>
+          <div class="lesson-item">
+            <span class="lesson-num">01</span>
+            <span class="lesson-title">Why we sample at all</span>
+            <span class="lesson-meta">8 min</span>
+            <span class="lesson-status"><span class="check-icon">✓</span></span>
+          </div>
+          <div class="lesson-item">
+            <span class="lesson-num">02</span>
+            <span class="lesson-title">The sampling distribution</span>
+            <span class="lesson-meta">14 min</span>
+            <span class="lesson-status"><span class="check-icon">✓</span></span>
+          </div>
+          <div class="lesson-item" style="background:var(--aqua-50)">
+            <span class="lesson-num" style="color:var(--aqua-600)">03</span>
+            <span class="lesson-title" style="color:var(--aqua-700)">Standard error, intuitively</span>
+            <span class="lesson-meta" style="color:var(--aqua-600)">12 min · now</span>
+            <span class="lesson-status"><span class="check-icon empty" style="border-color:var(--aqua-500)"></span></span>
+          </div>
+          <div class="lesson-item">
+            <span class="lesson-num">04</span>
+            <span class="lesson-title">Confidence intervals</span>
+            <span class="lesson-meta">18 min</span>
+            <span class="lesson-status"><span class="check-icon empty"></span></span>
+          </div>
+          <div class="lesson-item">
+            <span class="lesson-num">05</span>
+            <span class="lesson-title">When the interval is wrong</span>
+            <span class="lesson-meta">11 min</span>
+            <span class="lesson-status"><span class="check-icon empty"></span></span>
+          </div>
+        </div>
+      </main>
+
+      <aside class="app-rail">
+        <div class="rail-card">
+          <div class="rail-cover"></div>
+          <div class="rail-body">
+            <div class="rail-eyebrow">Now playing</div>
+            <h3 class="rail-title">Standard error, intuitively</h3>
+            <p class="rail-desc">A short tour of the most useful number in statistics — and why most people who use it don't quite know what it measures.</p>
+            <div class="rail-meta">
+              <span><strong>12</strong> min</span>
+              <span><strong>3</strong> exercises</span>
+              <span><strong>B</strong> tier</span>
+            </div>
+            <button class="btn btn-primary" style="width:100%;justify-content:center">Resume</button>
+          </div>
+        </div>
+
+        <div class="mentor-card">
+          <div class="mentor-head">
+            <div class="mentor-avatar">P</div>
+            <div>
+              <p class="mentor-name">Paige</p>
+              <p class="mentor-role">Your AI mentor</p>
+            </div>
+          </div>
+          <p class="mentor-msg">"You stalled on the formula last time — let's try the visual derivation first, then come back to it."</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============== MOTION ============== -->
+<section id="motion">
+  <div class="container">
+    <div class="section-label">08 — Motion</div>
+    <h2 class="section-title">Motion that <em>settles</em>.</h2>
+    <p class="section-lede">
+      The system uses a small number of carefully tuned curves. Most transitions are short and ease-out — the interface arrives, it doesn't perform.
+    </p>
+
+    <div class="motion-grid">
+      <div class="motion-card">
+        <div class="motion-name">Quick · 140ms</div>
+        <div class="motion-spec"><strong>cubic-bezier(0.2, 0, 0.2, 1)</strong>Hover, focus, button states. Never noticed, always felt.</div>
+      </div>
+      <div class="motion-card">
+        <div class="motion-name">Smooth · 240ms</div>
+        <div class="motion-spec"><strong>cubic-bezier(0.4, 0, 0.2, 1)</strong>Tab switches, popover reveals, lesson transitions.</div>
+      </div>
+      <div class="motion-card">
+        <div class="motion-name">Settle · 380ms</div>
+        <div class="motion-spec"><strong>cubic-bezier(0.34, 1.56, 0.64, 1)</strong>Toggle handles, modal entries — a small overshoot, then rest.</div>
+      </div>
+      <div class="motion-card">
+        <div class="motion-name">Glow · 600ms</div>
+        <div class="motion-spec"><strong>cubic-bezier(0.4, 0, 0.6, 1)</strong>Reserved for moments of accomplishment — a lesson complete, a streak earned.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== FOOTER ============== -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div><strong>Lumen</strong> · A design language for learning · v1.0 · 2026</div>
+      <div>Lineage: <strong>IBM Carbon</strong> × <strong>Apple Aqua</strong></div>
+      <div>Designed for <strong>FifthVertex</strong></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
