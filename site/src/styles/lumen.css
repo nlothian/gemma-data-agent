@@ -1244,6 +1244,38 @@ body.exec-resizing {
   min-height: 120px;
   overflow: auto;
   background: var(--snow);
+  padding: var(--s-3);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--graphite);
+}
+
+.explainer-body p {
+  margin: 0 0 var(--s-2) 0;
+}
+
+.explainer-body p:last-child {
+  margin-bottom: 0;
+}
+
+.explainer-summary {
+  padding: var(--s-2);
+  background: var(--white);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-4);
+  color: var(--steel);
+  font-style: italic;
+}
+
+.explainer-summary--loading {
+  color: var(--silver);
+}
+
+.explainer-summary--error {
+  color: var(--ink);
+  border-color: var(--mist);
+  background: var(--snow);
+  font-style: normal;
 }
 
 .exec-editor .cm-editor {
