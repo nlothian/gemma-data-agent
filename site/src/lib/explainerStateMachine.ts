@@ -8,6 +8,8 @@
  */
 
 import type { PendingToolCall } from './toolDebugger';
+import type { LLMConfig } from '../types/llm';
+import { summariseCode, type SummaryLanguage } from './summariseCode';
 
 export type SummaryState =
   | { status: 'idle' }
@@ -97,5 +99,35 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
             : { status: 'error', message: event.message };
       return { ...state, summary: next };
     }
+  }
+}
+
+/**
+ * Orchestrates a single summarisation request and dispatches the matching
+ * lifecycle events. Extracted from the component so we can unit-test the
+ * dispatch sequence end-to-end (LOADING → READY / ERROR) without React.
+ *
+ * The dispatched events all carry the same `key` so that if the user steps
+ * past this tool call before the request resolves, the reducer will drop the
+ * stale result.
+ */
+export async function runSummarisation(params: {
+  language: SummaryLanguage;
+  code: string;
+  key: string;
+  config: LLMConfig;
+  signal: AbortSignal;
+  dispatch: (event: ExplainerEvent) => void;
+}): Promise<void> {
+  const { language, code, key, config, signal, dispatch } = params;
+  dispatch({ type: 'SUMMARY_LOADING', key });
+  try {
+    const text = await summariseCode(language, code, config, signal);
+    if (signal.aborted) return;
+    dispatch({ type: 'SUMMARY_READY', key, text });
+  } catch (err) {
+    if (signal.aborted) return;
+    const message = err instanceof Error ? err.message : String(err);
+    dispatch({ type: 'SUMMARY_ERROR', key, message });
   }
 }

@@ -8,11 +8,10 @@ import useLLMConfig from '../hooks/useLLMConfig';
 import {
   initialState,
   reduce,
-  summaryKey,
+  runSummarisation,
   type ExplainerState,
   type SummaryState,
 } from '../lib/explainerStateMachine';
-import { summariseCode } from '../lib/summariseCode';
 
 export default function ExplainerPanel() {
   const debug = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -30,38 +29,37 @@ export default function ExplainerPanel() {
     }
   }, [debug.mode, debug.pending]);
 
-  // Kick off summarisation when we land on a python/sql paused state. The
-  // summariser issues an isolated request — see comments in summariseCode.ts
-  // for why it must not share the agent's chat history.
-  const key = summaryKey(state);
+  // Kick off summarisation whenever the python/sql code identity changes.
+  // We deliberately do NOT depend on `state` itself — dispatching
+  // SUMMARY_LOADING from inside the effect would otherwise change the state
+  // reference, run cleanup, abort the in-flight request, and the response
+  // would never be displayed. See comments in summariseCode.ts for why this
+  // request must stay isolated from the agent's chat history.
+  const language =
+    state.kind === 'paused-python' ? 'python' : state.kind === 'paused-sql' ? 'sql' : null;
+  const code =
+    state.kind === 'paused-python'
+      ? state.code
+      : state.kind === 'paused-sql'
+        ? state.sql
+        : null;
+  const endpoint = config.activeEndpoint;
+
   useEffect(() => {
-    if (state.kind !== 'paused-python' && state.kind !== 'paused-sql') return;
-    if (state.summary.status !== 'idle') return;
-    if (!config.activeEndpoint) return;
-    const k = key;
-    if (k === null) return;
+    if (language === null || code === null) return;
+    if (!endpoint) return;
+    const key = `${language}:${code}`;
 
     const ctrl = new AbortController();
-    dispatch({ type: 'SUMMARY_LOADING', key: k });
-
-    const language = state.kind === 'paused-python' ? 'python' : 'sql';
-    const code = state.kind === 'paused-python' ? state.code : state.sql;
-
-    summariseCode(language, code, config, ctrl.signal)
-      .then((text) => {
-        if (ctrl.signal.aborted) return;
-        dispatch({ type: 'SUMMARY_READY', key: k, text });
-      })
-      .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return;
-        const message = err instanceof Error ? err.message : String(err);
-        dispatch({ type: 'SUMMARY_ERROR', key: k, message });
-      });
+    void runSummarisation({ language, code, key, config, signal: ctrl.signal, dispatch });
 
     return () => {
       ctrl.abort();
     };
-  }, [state.kind, key, state, config]);
+    // `config` is stable across unrelated setting reads (see useLLMConfig);
+    // only `endpoint` is a meaningful invalidation trigger here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language, code, endpoint]);
 
   return (
     <section className="explainer-panel" aria-label="Explainer">

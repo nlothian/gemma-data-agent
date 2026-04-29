@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   initialState,
   reduce,
+  runSummarisation,
   summaryKey,
+  type ExplainerEvent,
   type ExplainerState,
 } from './explainerStateMachine';
+import type { LLMConfig } from '../types/llm';
 
 describe('explainerStateMachine', () => {
   it('starts empty', () => {
@@ -183,6 +186,20 @@ describe('explainerStateMachine', () => {
     expect(summaryKey({ kind: 'paused-load', url: 'https://x' })).toBe(null);
   });
 
+  it('a full LOADING → READY sequence applied to a paused-python state lands a ready summary', () => {
+    let s: ExplainerState = reduce(initialState, {
+      type: 'PENDING',
+      call: { toolName: 'RunPython', input: { code: 'print(1)' } },
+    });
+    const k = summaryKey(s)!;
+    s = reduce(s, { type: 'SUMMARY_LOADING', key: k });
+    s = reduce(s, { type: 'SUMMARY_READY', key: k, text: 'Prints one.' });
+    expect(s).toMatchObject({
+      kind: 'paused-python',
+      summary: { status: 'ready', text: 'Prints one.' },
+    });
+  });
+
   it('RESET returns to initial state', () => {
     const paused = reduce(initialState, {
       type: 'PENDING',
@@ -206,5 +223,108 @@ describe('explainerStateMachine', () => {
       sql: 'SELECT 1',
       summary: { status: 'idle' },
     });
+  });
+});
+
+const ANTHROPIC_CONFIG: LLMConfig = {
+  activeEndpoint: 'https://api.anthropic.com/v1',
+  customEndpoints: [],
+  apiKeys: { 'https://api.anthropic.com/v1': 'sk-test' },
+  models: { 'https://api.anthropic.com/v1': 'claude-test' },
+};
+
+describe('runSummarisation orchestration', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockFetchOnce(payload: unknown): void {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  }
+
+  it('dispatches LOADING and then READY when the summariser resolves', async () => {
+    mockFetchOnce({ content: [{ type: 'text', text: 'It prints one.' }] });
+    const events: ExplainerEvent[] = [];
+    const ctrl = new AbortController();
+
+    await runSummarisation({
+      language: 'python',
+      code: 'print(1)',
+      key: 'python:print(1)',
+      config: ANTHROPIC_CONFIG,
+      signal: ctrl.signal,
+      dispatch: (e) => events.push(e),
+    });
+
+    // Regression: previously the component aborted its own request when the
+    // LOADING dispatch caused state to change, so READY was never reached.
+    expect(events).toHaveLength(2);
+    expect(events[0]).toEqual({ type: 'SUMMARY_LOADING', key: 'python:print(1)' });
+    expect(events[1]).toEqual({
+      type: 'SUMMARY_READY',
+      key: 'python:print(1)',
+      text: 'It prints one.',
+    });
+  });
+
+  it('dispatches ERROR when the summariser rejects', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('boom', { status: 500 }),
+    );
+    const events: ExplainerEvent[] = [];
+    const ctrl = new AbortController();
+
+    await runSummarisation({
+      language: 'sql',
+      code: 'SELECT 1',
+      key: 'sql:SELECT 1',
+      config: ANTHROPIC_CONFIG,
+      signal: ctrl.signal,
+      dispatch: (e) => events.push(e),
+    });
+
+    expect(events[0]).toEqual({ type: 'SUMMARY_LOADING', key: 'sql:SELECT 1' });
+    expect(events[1]?.type).toBe('SUMMARY_ERROR');
+  });
+
+  it('does not dispatch READY when the signal is aborted before resolution', async () => {
+    let resolveFetch!: (r: Response) => void;
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      () => new Promise((res) => {
+        resolveFetch = res;
+      }),
+    );
+    const events: ExplainerEvent[] = [];
+    const ctrl = new AbortController();
+
+    const pending = runSummarisation({
+      language: 'python',
+      code: 'x = 1',
+      key: 'python:x = 1',
+      config: ANTHROPIC_CONFIG,
+      signal: ctrl.signal,
+      dispatch: (e) => events.push(e),
+    });
+
+    expect(events).toEqual([{ type: 'SUMMARY_LOADING', key: 'python:x = 1' }]);
+    ctrl.abort();
+    resolveFetch(
+      new Response(JSON.stringify({ content: [{ type: 'text', text: 'late' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await pending;
+
+    // Only the LOADING event should be in the queue — the late READY is dropped.
+    expect(events).toHaveLength(1);
   });
 });
