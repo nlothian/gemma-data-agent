@@ -446,6 +446,33 @@ body.has-chat main {
   overflow: hidden;
 }
 
+.chat-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+  touch-action: none;
+}
+.chat-resize-handle:hover,
+.chat-resize-handle:focus-visible {
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--steel) 2px,
+    var(--steel) 4px,
+    transparent 6px
+  );
+  outline: none;
+}
+body.chat-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .chat-header {
   display: flex;
   align-items: center;
@@ -456,23 +483,37 @@ body.has-chat main {
 }
 .chat-title {
   font-size: 13px;
-  font-weight: 500;
   color: var(--ink);
   letter-spacing: -0.005em;
   display: flex;
   align-items: baseline;
   gap: var(--s-2);
+  min-width: 0;
 }
 .chat-model {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--steel);
-  font-weight: 400;
+  color: var(--ink);
+  font-weight: 500;
   letter-spacing: 0;
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.chat-model-empty {
+  color: var(--steel);
+  font-style: italic;
+  font-weight: 400;
+}
+.chat-tokens {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--steel);
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .chat-header-actions {
   display: flex;
@@ -892,6 +933,9 @@ body.has-chat main {
   .chat-sidebar[data-open='true'] {
     transform: translateX(0);
   }
+  .chat-resize-handle {
+    display: none;
+  }
   .chat-mobile-close {
     display: inline-flex;
   }
@@ -911,6 +955,10 @@ main.container:has(section.exec-panel) {
   max-width: none;
   padding-left: var(--s-7);
   padding-right: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--nav-h));
+  overflow: hidden;
 }
 body.has-chat main.container:has(section.exec-panel) {
   padding-right: calc(var(--chat-w) + var(--chat-gutter) * 2);
@@ -919,8 +967,7 @@ body.has-chat main.container:has(section.exec-panel) {
 .exec-panel {
   display: flex;
   flex-direction: column;
-  height: calc((100vh - var(--nav-h)) * 2 / 3);
-  min-height: 360px;
+  min-height: 200px;
   margin-top: var(--chat-gutter);
   background: var(--white);
   border: 1px solid var(--mist);
@@ -928,6 +975,34 @@ body.has-chat main.container:has(section.exec-panel) {
   box-shadow: var(--el-2);
   overflow: hidden;
   font-family: var(--font-sans);
+  position: relative;
+}
+
+.exec-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 1;
+  touch-action: none;
+}
+.exec-resize-handle:hover,
+.exec-resize-handle:focus-visible {
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--steel) 2px,
+    var(--steel) 4px,
+    transparent 6px
+  );
+  outline: none;
+}
+body.exec-resizing {
+  cursor: row-resize;
+  user-select: none;
 }
 
 .exec-tabs {
@@ -1061,6 +1136,45 @@ body.has-chat main.container:has(section.exec-panel) {
 
 .exec-editor-section[data-folded="true"] .exec-editor {
   display: none;
+}
+
+.explainer-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 120px;
+  margin-top: var(--chat-gutter);
+  margin-bottom: var(--chat-gutter);
+  background: var(--white);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-12);
+  box-shadow: var(--el-2);
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.explainer-header {
+  display: flex;
+  align-items: center;
+  padding: var(--s-2) var(--s-3);
+  background: var(--snow);
+  border-bottom: 1px solid var(--mist);
+  flex-shrink: 0;
+}
+
+.explainer-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.explainer-body {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  background: var(--snow);
 }
 
 .exec-editor .cm-editor {

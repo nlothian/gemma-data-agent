@@ -1,10 +1,16 @@
 import { formatErrorBody } from './llm';
 import type { LLMConfig } from '../types/llm';
+import { isLocalGemmaEndpoint } from '../types/llm';
 import { runAgentTool, type AgentToolSpec } from './agentTools';
 
 export interface StreamChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+export interface TokenUsageReport {
+  input: number;
+  output: number;
 }
 
 export interface StreamChatOptions {
@@ -15,6 +21,7 @@ export interface StreamChatOptions {
   onToken: (delta: string) => void;
   onDone: (full: string) => void;
   onError: (err: Error) => void;
+  onUsage?: (usage: TokenUsageReport) => void;
 }
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -45,16 +52,28 @@ type StreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_start'; index: number; id: string; name: string }
   | { type: 'tool_delta'; index: number; partialJson: string }
-  | { type: 'stop'; reason: string };
+  | { type: 'stop'; reason: string }
+  | { type: 'usage'; input?: number; output?: number };
 
 export async function streamChat(opts: StreamChatOptions): Promise<void> {
-  const { config, messages, tools, signal, onToken, onDone, onError } = opts;
+  const { config, messages, tools, signal, onToken, onDone, onError, onUsage } = opts;
 
   let endpoint: string;
+  try {
+    endpoint = requireString(config.activeEndpoint, 'No LLM endpoint selected. Pick one in Settings.');
+  } catch (err) {
+    onError(err as Error);
+    return;
+  }
+
+  if (isLocalGemmaEndpoint(endpoint)) {
+    const { streamLocalGemma } = await import('./localLlm/streamLocalGemma');
+    return streamLocalGemma(opts);
+  }
+
   let apiKey: string;
   let model: string;
   try {
-    endpoint = requireString(config.activeEndpoint, 'No LLM endpoint selected. Pick one in Settings.');
     apiKey = requireString(config.apiKeys[endpoint]?.trim(), 'No API key set for the active LLM endpoint.');
     model = requireString(config.models[endpoint], 'No model set for the active LLM endpoint.');
   } catch (err) {
@@ -77,6 +96,14 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
     onToken(delta);
   };
 
+  let lastInput = 0;
+  let lastOutput = 0;
+  const reportUsage = (u: { input?: number; output?: number }): void => {
+    if (typeof u.input === 'number' && u.input > 0) lastInput = u.input;
+    if (typeof u.output === 'number' && u.output >= 0) lastOutput = u.output;
+    onUsage?.({ input: lastInput, output: lastOutput });
+  };
+
   try {
     for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
       if (signal?.aborted) {
@@ -94,6 +121,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
         tools,
         signal,
         onText: emit,
+        onUsage: reportUsage,
       });
 
       if (turn.toolUses.length === 0) {
@@ -132,7 +160,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
     emit('\n\n[Reached max tool iterations.]');
     onDone(accumulatedText);
   } catch (err) {
-    if (isAbort(err)) {
+    if (isAbortError(err)) {
       onDone(accumulatedText);
       return;
     }
@@ -150,10 +178,11 @@ interface TurnInput {
   tools?: AgentToolSpec[];
   signal?: AbortSignal;
   onText: (delta: string) => void;
+  onUsage?: (usage: { input?: number; output?: number }) => void;
 }
 
 async function runOneTurn(t: TurnInput): Promise<TurnResult> {
-  const { endpoint, apiKey, model, isAnthropic, systemText, conv, tools, signal, onText } = t;
+  const { endpoint, apiKey, model, isAnthropic, systemText, conv, tools, signal, onText, onUsage } = t;
 
   const url = isAnthropic ? `${endpoint}/messages` : `${endpoint}/chat/completions`;
   const headers: Record<string, string> = {
@@ -187,6 +216,7 @@ async function runOneTurn(t: TurnInput): Promise<TurnResult> {
     body = JSON.stringify({
       model,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         ...(systemText ? [{ role: 'system', content: systemText }] : []),
         ...conv.flatMap(toOpenAIMessages),
@@ -241,6 +271,8 @@ async function runOneTurn(t: TurnInput): Promise<TurnResult> {
         else toolUsesByIndex.set(ev.index, { id: '', name: '', inputJson: ev.partialJson });
       } else if (ev.type === 'stop') {
         stopReason = ev.reason;
+      } else if (ev.type === 'usage') {
+        onUsage?.({ input: ev.input, output: ev.output });
       }
     }
   };
@@ -376,17 +408,29 @@ function parseFrame(frame: string, isAnthropic: boolean): StreamEvent[] | null {
   return isAnthropic ? parseAnthropicChunk(parsed) : parseOpenAIChunk(parsed);
 }
 
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
 interface AnthropicChunk {
   type?: string;
   index?: number;
   content_block?: { type?: string; id?: string; name?: string };
   delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string };
+  message?: { usage?: AnthropicUsage };
+  usage?: AnthropicUsage;
 }
 
 function parseAnthropicChunk(parsed: unknown): StreamEvent[] {
   const obj = parsed as AnthropicChunk;
   const events: StreamEvent[] = [];
-  if (obj.type === 'content_block_start' && obj.content_block?.type === 'tool_use') {
+  if (obj.type === 'message_start') {
+    const u = obj.message?.usage;
+    if (u && (typeof u.input_tokens === 'number' || typeof u.output_tokens === 'number')) {
+      events.push({ type: 'usage', input: u.input_tokens, output: u.output_tokens });
+    }
+  } else if (obj.type === 'content_block_start' && obj.content_block?.type === 'tool_use') {
     events.push({
       type: 'tool_start',
       index: obj.index ?? 0,
@@ -400,8 +444,13 @@ function parseAnthropicChunk(parsed: unknown): StreamEvent[] {
     } else if (d?.type === 'input_json_delta' && typeof d.partial_json === 'string') {
       events.push({ type: 'tool_delta', index: obj.index ?? 0, partialJson: d.partial_json });
     }
-  } else if (obj.type === 'message_delta' && obj.delta?.stop_reason) {
-    events.push({ type: 'stop', reason: obj.delta.stop_reason });
+  } else if (obj.type === 'message_delta') {
+    if (obj.delta?.stop_reason) {
+      events.push({ type: 'stop', reason: obj.delta.stop_reason });
+    }
+    if (obj.usage && typeof obj.usage.output_tokens === 'number') {
+      events.push({ type: 'usage', output: obj.usage.output_tokens });
+    }
   }
   return events;
 }
@@ -418,11 +467,19 @@ interface OpenAIChunk {
     delta?: { content?: string; tool_calls?: OpenAIToolCallDelta[] };
     finish_reason?: string | null;
   }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
 function parseOpenAIChunk(parsed: unknown): StreamEvent[] {
   const obj = parsed as OpenAIChunk;
   const events: StreamEvent[] = [];
+  if (obj.usage && (typeof obj.usage.prompt_tokens === 'number' || typeof obj.usage.completion_tokens === 'number')) {
+    events.push({
+      type: 'usage',
+      input: obj.usage.prompt_tokens,
+      output: obj.usage.completion_tokens,
+    });
+  }
   const choice = obj.choices?.[0];
   if (!choice) return events;
   const delta = choice.delta;
@@ -450,7 +507,7 @@ function parseOpenAIChunk(parsed: unknown): StreamEvent[] {
   return events;
 }
 
-function safeParseJson(s: string): unknown {
+export function safeParseJson(s: string): unknown {
   if (!s) return {};
   try {
     return JSON.parse(s);
@@ -459,7 +516,7 @@ function safeParseJson(s: string): unknown {
   }
 }
 
-function isAbort(err: unknown): boolean {
+export function isAbortError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'AbortError') return true;
   if (err instanceof Error && err.name === 'AbortError') return true;
   return false;

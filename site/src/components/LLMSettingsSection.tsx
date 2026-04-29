@@ -12,7 +12,21 @@ import useLLMConfig from '../hooks/useLLMConfig';
 import useProviderModels, {
   type ProviderModelsEntry,
 } from '../hooks/useProviderModels';
-import { BUILT_IN_PROVIDERS, type CustomEndpoint } from '../types/llm';
+import {
+  BUILT_IN_PROVIDERS,
+  LOCAL_GEMMA_ENDPOINT,
+  type CustomEndpoint,
+} from '../types/llm';
+import {
+  DEFAULT_LOCAL_GEMMA_ID,
+  LOCAL_GEMMA_MODELS,
+  formatGB,
+  getLocalGemmaModel,
+  type LocalGemmaId,
+  type LocalGemmaModel,
+} from '../lib/localLlm/models';
+import { isModelCached } from '../lib/localLlm/opfsCache';
+import { detectWebGpu, type WebGpuStatus } from '../lib/localLlm/webgpu';
 
 const CUSTOM_SENTINEL = '__custom__';
 
@@ -226,6 +240,57 @@ const styles = {
     gap: '6px',
     cursor: 'pointer',
     alignSelf: 'flex-start' as const,
+  } as const,
+  localHint: {
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 400,
+    fontSize: '12px',
+    color: 'var(--steel)',
+    margin: '6px 0 0',
+    lineHeight: 1.4,
+  } as const,
+  localConfirm: {
+    marginTop: '8px',
+    padding: '10px 12px',
+    border: '1px solid var(--aqua-200, var(--mist))',
+    background: 'var(--aqua-50)',
+    borderRadius: 'var(--r-8)',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '8px',
+  } as const,
+  localConfirmText: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: '13px',
+    color: 'var(--ink)',
+    lineHeight: 1.45,
+    margin: 0,
+  } as const,
+  localConfirmActions: {
+    display: 'flex',
+    gap: '8px',
+  } as const,
+  localApplyButton: {
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 500,
+    fontSize: '12px',
+    color: 'var(--white)',
+    background: 'var(--aqua-600)',
+    border: '1px solid var(--aqua-600)',
+    padding: '6px 12px',
+    borderRadius: 'var(--r-8)',
+    cursor: 'pointer',
+  } as const,
+  localCancelButton: {
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 500,
+    fontSize: '12px',
+    color: 'var(--graphite)',
+    background: 'var(--white)',
+    border: '1px solid var(--silver)',
+    padding: '6px 12px',
+    borderRadius: 'var(--r-8)',
+    cursor: 'pointer',
   } as const,
 };
 
@@ -696,6 +761,143 @@ function CustomRow({
   );
 }
 
+interface LocalGemmaRowProps {
+  isLast: boolean;
+  isActive: boolean;
+  selectedId: LocalGemmaId;
+  onActivateConfirmed: () => void;
+  onPickModel: (id: LocalGemmaId) => void;
+}
+
+function LocalGemmaRow({
+  isLast,
+  isActive,
+  selectedId,
+  onActivateConfirmed,
+  onPickModel,
+}: LocalGemmaRowProps) {
+  const rowStyle = isLast ? { ...styles.row, ...styles.rowLast } : styles.row;
+  const [gpuStatus, setGpuStatus] = useState<WebGpuStatus | null>(null);
+  const [pendingDownload, setPendingDownload] = useState<LocalGemmaModel | null>(null);
+  const [checkingCache, setCheckingCache] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectWebGpu().then((s) => {
+      if (!cancelled) setGpuStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isActive) setPendingDownload(null);
+  }, [isActive]);
+
+  const supported = gpuStatus?.supported === true;
+  const detecting = gpuStatus === null;
+  const reason = gpuStatus?.reason;
+
+  const handleRadioChange = (): void => {
+    if (isActive) return;
+    const model = getLocalGemmaModel(selectedId);
+    if (!model) return;
+    setCheckingCache(true);
+    void (async () => {
+      try {
+        const cached = await isModelCached(model.url);
+        if (cached) {
+          setPendingDownload(null);
+          onActivateConfirmed();
+        } else {
+          setPendingDownload(model);
+        }
+      } finally {
+        setCheckingCache(false);
+      }
+    })();
+  };
+
+  const handleApply = (): void => {
+    setPendingDownload(null);
+    onActivateConfirmed();
+  };
+
+  const handleCancel = (): void => {
+    setPendingDownload(null);
+  };
+
+  return (
+    <div style={rowStyle}>
+      <input
+        type="radio"
+        name="llm-active"
+        value={LOCAL_GEMMA_ENDPOINT}
+        checked={isActive}
+        onChange={handleRadioChange}
+        disabled={!supported || checkingCache}
+        style={styles.radio}
+        aria-label="Use Local Gemma 4 (WebGPU)"
+        title={!supported && reason ? reason : undefined}
+      />
+      <div style={styles.middle}>
+        <div style={styles.builtInLabel}>Local Gemma 4 (WebGPU)</div>
+        <div style={styles.builtInUrl}>Runs in your browser via MediaPipe</div>
+        {!supported && !detecting && reason ? (
+          <p style={styles.localHint}>{reason}</p>
+        ) : null}
+        {supported ? (
+          <p style={styles.localHint}>
+            Models are downloaded once and cached. Tool support is best-effort on local models.
+          </p>
+        ) : null}
+      </div>
+      <div style={styles.modelWrap}>
+        <select
+          value={selectedId}
+          onChange={(e) => onPickModel(e.target.value as LocalGemmaId)}
+          disabled={!supported}
+          aria-label="Local Gemma model"
+          style={styles.selectEl}
+        >
+          {LOCAL_GEMMA_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — {formatGB(m.approxBytes)}
+            </option>
+          ))}
+        </select>
+        {pendingDownload ? (
+          <div style={styles.localConfirm} role="alert">
+            <p style={styles.localConfirmText}>
+              {pendingDownload.label} is about {formatGB(pendingDownload.approxBytes)}.
+              It will download and cache when you close Settings.
+            </p>
+            <div style={styles.localConfirmActions}>
+              <button
+                type="button"
+                style={styles.localApplyButton}
+                onClick={handleApply}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                style={styles.localCancelButton}
+                onClick={handleCancel}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div style={styles.keyWrap} aria-hidden="true" />
+      <div style={styles.removeSpacer} />
+    </div>
+  );
+}
+
 export default function LLMSettingsSection() {
   const {
     config,
@@ -711,7 +913,22 @@ export default function LLMSettingsSection() {
 
   if (!ready) return null;
 
-  const total = BUILT_IN_PROVIDERS.length + config.customEndpoints.length;
+  const localActive = config.activeEndpoint === LOCAL_GEMMA_ENDPOINT;
+  const localSelectedId =
+    (config.models[LOCAL_GEMMA_ENDPOINT] as LocalGemmaId | undefined) ?? DEFAULT_LOCAL_GEMMA_ID;
+
+  const handleLocalActivateConfirmed = (): void => {
+    setActiveEndpoint(LOCAL_GEMMA_ENDPOINT);
+    if (!config.models[LOCAL_GEMMA_ENDPOINT]) {
+      setModel(LOCAL_GEMMA_ENDPOINT, localSelectedId);
+    }
+  };
+
+  const handleLocalPickModel = (id: LocalGemmaId): void => {
+    setModel(LOCAL_GEMMA_ENDPOINT, id);
+  };
+
+  const total = BUILT_IN_PROVIDERS.length + 1 + config.customEndpoints.length;
 
   return (
     <section style={styles.wrapper} aria-labelledby="llm-provider-heading">
@@ -765,8 +982,16 @@ export default function LLMSettingsSection() {
           );
         })}
 
+        <LocalGemmaRow
+          isLast={BUILT_IN_PROVIDERS.length === total - 1}
+          isActive={localActive}
+          selectedId={localSelectedId}
+          onActivateConfirmed={handleLocalActivateConfirmed}
+          onPickModel={handleLocalPickModel}
+        />
+
         {config.customEndpoints.map((endpoint, i) => {
-          const isLast = BUILT_IN_PROVIDERS.length + i === total - 1;
+          const isLast = BUILT_IN_PROVIDERS.length + 1 + i === total - 1;
           const isActive =
             endpoint.url !== '' && config.activeEndpoint === endpoint.url;
           const apiKey = endpoint.url ? config.apiKeys[endpoint.url] ?? '' : '';
