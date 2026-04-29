@@ -12,12 +12,19 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import useLLMConfig from '../hooks/useLLMConfig';
 import useChatHistory from '../hooks/useChatHistory';
+import useChatSidebarWidth, {
+  MIN_WIDTH as CHAT_MIN_WIDTH,
+  MAX_WIDTH as CHAT_MAX_WIDTH,
+} from '../hooks/useChatSidebarWidth';
 import { streamChat, type StreamChatMessage } from '../lib/streamChat';
 import { generateId } from '../lib/browser';
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
+import * as tokenUsageStore from '../lib/tokenUsageStore';
+import { getContextWindowForEndpoint, formatTokenCount } from '../lib/contextWindow';
 import type { ChatMessage } from '../types/chat';
+import { isLocalGemmaEndpoint } from '../types/llm';
 import {
   ChevronRightIcon,
   CloseIcon,
@@ -166,10 +173,16 @@ export default function ChatSidebar() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOpenMobile, setIsOpenMobile] = useState(false);
+  const { width: sidebarWidth, setWidth: setSidebarWidth } = useChatSidebarWidth();
   const debugger_ = useSyncExternalStore(
     toolDebugger.subscribe,
     toolDebugger.getSnapshot,
     toolDebugger.getServerSnapshot,
+  );
+  const tokenUsage = useSyncExternalStore(
+    tokenUsageStore.subscribe,
+    tokenUsageStore.getSnapshot,
+    tokenUsageStore.getServerSnapshot,
   );
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -180,7 +193,7 @@ export default function ChatSidebar() {
     if (!cfgReady) return false;
     const ep = config.activeEndpoint;
     if (!ep) return true;
-    if (!config.apiKeys[ep]) return true;
+    if (!isLocalGemmaEndpoint(ep) && !config.apiKeys[ep]) return true;
     if (!config.models[ep]) return true;
     return false;
   }, [cfgReady, config]);
@@ -211,6 +224,62 @@ export default function ChatSidebar() {
       el.scrollTop = el.scrollHeight;
     }
   }, [history.messages]);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--chat-w', sidebarWidth + 'px');
+    return () => {
+      root.style.removeProperty('--chat-w');
+    };
+  }, [sidebarWidth]);
+
+  const onResizeHandlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (window.matchMedia('(max-width: 900px)').matches) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const handle = e.currentTarget;
+      const startX = e.clientX;
+      const startWidth = sidebarWidth;
+      handle.setPointerCapture(e.pointerId);
+      document.body.classList.add('chat-resizing');
+
+      const onMove = (ev: PointerEvent): void => {
+        setSidebarWidth(startWidth + (startX - ev.clientX));
+      };
+      const onUp = (ev: PointerEvent): void => {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        document.body.classList.remove('chat-resizing');
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    },
+    [sidebarWidth, setSidebarWidth],
+  );
+
+  const onResizeHandleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = 16;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setSidebarWidth(sidebarWidth + step);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setSidebarWidth(sidebarWidth - step);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setSidebarWidth(CHAT_MAX_WIDTH);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setSidebarWidth(CHAT_MIN_WIDTH);
+      }
+    },
+    [sidebarWidth, setSidebarWidth],
+  );
 
   const autoGrow = useCallback(() => {
     const ta = taRef.current;
@@ -263,6 +332,7 @@ export default function ChatSidebar() {
         tools: AGENT_TOOLS,
         signal: controller.signal,
         onToken: (delta) => updateLastAssistant(delta),
+        onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
         onDone: () => {
           flush();
           setIsStreaming(false);
@@ -335,6 +405,7 @@ export default function ChatSidebar() {
     if (isStreaming) abortRef.current?.abort();
     toolDebugger.reset();
     executionPanelStore.resetPanel();
+    tokenUsageStore.setTokenUsage(null);
     clear();
   }, [clear, isStreaming]);
 
@@ -348,12 +419,32 @@ export default function ChatSidebar() {
         data-open={isOpenMobile ? 'true' : 'false'}
         aria-label="Chat"
       >
+        <div
+          className="chat-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize chat sidebar"
+          aria-valuemin={CHAT_MIN_WIDTH}
+          aria-valuemax={CHAT_MAX_WIDTH}
+          aria-valuenow={sidebarWidth}
+          tabIndex={0}
+          onPointerDown={onResizeHandlePointerDown}
+          onKeyDown={onResizeHandleKeyDown}
+        />
         <header className="chat-header">
           <div className="chat-title">
-            Chat
             {config.activeEndpoint && config.models[config.activeEndpoint] ? (
-              <span className="chat-model">{config.models[config.activeEndpoint]}</span>
-            ) : null}
+              <>
+                <span className="chat-model">{config.models[config.activeEndpoint]}</span>
+                <span className="chat-tokens">
+                  {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}
+                  {' / '}
+                  {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
+                </span>
+              </>
+            ) : (
+              <span className="chat-model chat-model-empty">No model</span>
+            )}
           </div>
           <div className="chat-header-actions">
             <button

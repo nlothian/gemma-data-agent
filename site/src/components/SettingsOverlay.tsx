@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import LLMSettingsSection from './LLMSettingsSection';
 import { CloseIcon } from './Icons';
+import useLLMConfig from '../hooks/useLLMConfig';
+import { LOCAL_GEMMA_ENDPOINT } from '../types/llm';
+import { DEFAULT_LOCAL_GEMMA_ID, type LocalGemmaId } from '../lib/localLlm/models';
 
 interface SettingsOverlayProps {
   open: boolean;
@@ -70,23 +73,41 @@ const styles = {
 
 export default function SettingsOverlay({ open, onClose }: SettingsOverlayProps) {
   const [mounted, setMounted] = useState<boolean>(false);
+  const { config } = useLLMConfig();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const handleClose = useCallback((): void => {
+    if (config.activeEndpoint === LOCAL_GEMMA_ENDPOINT) {
+      const modelId =
+        (config.models[LOCAL_GEMMA_ENDPOINT] as LocalGemmaId | undefined) ??
+        DEFAULT_LOCAL_GEMMA_ID;
+      void (async () => {
+        try {
+          const { ensureLoaded } = await import('../lib/localLlm/llmService');
+          await ensureLoaded(modelId);
+        } catch (err) {
+          console.error('Failed to load local Gemma model:', err);
+        }
+      })();
+    }
+    onClose();
+  }, [config.activeEndpoint, config.models, onClose]);
+
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
     document.addEventListener('keydown', handler);
     return () => {
       document.removeEventListener('keydown', handler);
     };
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   const backdropStyle: React.CSSProperties = {
     ...styles.backdrop,
@@ -109,7 +130,7 @@ export default function SettingsOverlay({ open, onClose }: SettingsOverlayProps)
     <>
       <div
         style={backdropStyle}
-        onClick={onClose}
+        onClick={handleClose}
         aria-hidden={!open}
       />
       <aside
@@ -124,7 +145,7 @@ export default function SettingsOverlay({ open, onClose }: SettingsOverlayProps)
           <button
             type="button"
             style={styles.closeButton}
-            onClick={onClose}
+            onClick={handleClose}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--silver)';
               e.currentTarget.style.color = 'var(--ink)';

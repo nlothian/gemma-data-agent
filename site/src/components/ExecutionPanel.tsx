@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useState, useCallback, useSyncExternalStore } from 'react';
 import {
   subscribe,
   getSnapshot,
@@ -7,6 +7,10 @@ import {
   type PaneKind,
   type PaneStatus,
 } from '../lib/executionPanelStore';
+import useExecutionPanelHeight, {
+  MIN_HEIGHT,
+  MAX_HEIGHT,
+} from '../hooks/useExecutionPanelHeight';
 import CodeView from './CodeView';
 import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
@@ -20,6 +24,7 @@ export default function ExecutionPanel() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const active = snap.activeTab;
   const [codeFolded, setCodeFolded] = useState(false);
+  const { height, setHeight } = useExecutionPanelHeight();
 
   const pythonSource =
     snap.python.source.length > 0 ? snap.python.source : PYTHON_PLACEHOLDER;
@@ -28,8 +33,55 @@ export default function ExecutionPanel() {
 
   const toggleFold = () => setCodeFolded((v) => !v);
 
+  const onResizeHandlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const handle = e.currentTarget;
+      const startY = e.clientY;
+      const startHeight = height;
+      handle.setPointerCapture(e.pointerId);
+      document.body.classList.add('exec-resizing');
+
+      const onMove = (ev: PointerEvent): void => {
+        setHeight(startHeight + (ev.clientY - startY));
+      };
+      const onUp = (ev: PointerEvent): void => {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        handle.removeEventListener('pointercancel', onUp);
+        document.body.classList.remove('exec-resizing');
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      handle.addEventListener('pointercancel', onUp);
+    },
+    [height, setHeight],
+  );
+
+  const onResizeHandleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = 16;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHeight(height + step);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHeight(height - step);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setHeight(MAX_HEIGHT);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setHeight(MIN_HEIGHT);
+      }
+    },
+    [height, setHeight],
+  );
+
   return (
-    <section className="exec-panel" aria-label="Execution panel">
+    <section className="exec-panel" style={{ height }} aria-label="Execution panel">
       <div className="exec-tabs" role="tablist">
         <TabButton
           kind="data"
@@ -107,6 +159,18 @@ export default function ExecutionPanel() {
           </>
         )}
       </div>
+      <div
+        className="exec-resize-handle"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize execution panel"
+        aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={MAX_HEIGHT}
+        aria-valuenow={height}
+        tabIndex={0}
+        onPointerDown={onResizeHandlePointerDown}
+        onKeyDown={onResizeHandleKeyDown}
+      />
     </section>
   );
 }

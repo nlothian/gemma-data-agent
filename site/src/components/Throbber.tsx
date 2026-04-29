@@ -14,6 +14,10 @@ export default function Throbber() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const labels: string[] = [];
+  if (snap.llm.modelDownload) {
+    const verb = snap.llm.modelDownload.fromCache ? 'Loading' : 'Downloading';
+    labels.push(`${verb} ${snap.llm.modelDownload.label} · ${snap.llm.modelDownload.pct}%`);
+  }
   if (isBusy(snap.data.status)) labels.push('Loading data');
   if (isBusy(snap.sql.status)) labels.push('Running SQL');
   if (isBusy(snap.python.status)) labels.push('Running Python');

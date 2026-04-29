@@ -46,6 +46,7 @@ export interface DataPaneState {
 
 export interface LlmActivityState {
   active: boolean;
+  modelDownload: { label: string; pct: number; fromCache: boolean } | null;
 }
 
 export interface ExecutionPanelSnapshot {
@@ -78,6 +79,7 @@ const INITIAL_DATA: DataPaneState = {
 
 const INITIAL_LLM: LlmActivityState = {
   active: false,
+  modelDownload: null,
 };
 
 const INITIAL_SNAPSHOT: ExecutionPanelSnapshot = {
@@ -304,7 +306,23 @@ export function setAborted(kind: PaneKind): void {
 
 export function setLlmActive(active: boolean): void {
   if (snapshot.llm.active === active) return;
-  setSnapshot({ ...snapshot, llm: { active } });
+  setSnapshot({ ...snapshot, llm: { ...snapshot.llm, active } });
+}
+
+export function setLocalLlmDownloadProgress(
+  next: { label: string; pct: number; fromCache: boolean } | null,
+): void {
+  if (
+    snapshot.llm.modelDownload?.label === next?.label &&
+    snapshot.llm.modelDownload?.pct === next?.pct &&
+    snapshot.llm.modelDownload?.fromCache === next?.fromCache
+  ) {
+    return;
+  }
+  setSnapshot({
+    ...snapshot,
+    llm: { ...snapshot.llm, modelDownload: next },
+  });
 }
 
 export function resetPanel(): void {

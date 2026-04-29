@@ -31,3 +31,9 @@ export const EMPTY_LLM_CONFIG: LLMConfig = {
   apiKeys: {},
   models: {},
 };
+
+export const LOCAL_GEMMA_ENDPOINT = 'local://gemma';
+
+export function isLocalGemmaEndpoint(url: string | null | undefined): boolean {
+  return url === LOCAL_GEMMA_ENDPOINT;
+}
