@@ -16,6 +16,7 @@ import useChatSidebarWidth, {
   MIN_WIDTH as CHAT_MIN_WIDTH,
   MAX_WIDTH as CHAT_MAX_WIDTH,
 } from '../hooks/useChatSidebarWidth';
+import { useAttentionShake } from '../hooks/useAttentionShake';
 import { streamChat, type StreamChatMessage } from '../lib/streamChat';
 import { generateId } from '../lib/browser';
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
@@ -220,6 +221,7 @@ export default function ChatSidebar() {
     tokenUsageStore.getSnapshot,
     tokenUsageStore.getServerSnapshot,
   );
+  const stepShaking = useAttentionShake(Boolean(debugger_.pending));
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -551,7 +553,14 @@ export default function ChatSidebar() {
           <div className="chat-toolbar-group">
             <button
               type="button"
-              className="chat-iconbtn"
+              className={
+                'chat-iconbtn' +
+                (debugger_.pending
+                  ? stepShaking
+                    ? ' chat-iconbtn--shake'
+                    : ' chat-iconbtn--attention'
+                  : '')
+              }
               onClick={onStep}
               disabled={submitDisabled}
               title="Step"

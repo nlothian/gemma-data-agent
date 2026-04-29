@@ -541,6 +541,32 @@ body.chat-resizing {
   opacity: 0.4;
   cursor: default;
 }
+.chat-iconbtn--attention {
+  animation: chat-iconbtn-attention 1.8s ease-in-out infinite;
+}
+.chat-iconbtn--shake {
+  animation:
+    chat-iconbtn-attention 1.8s ease-in-out infinite,
+    chat-iconbtn-shake 80ms linear infinite;
+}
+@keyframes chat-iconbtn-attention {
+  0%, 100% { background: var(--aqua-50);  color: var(--aqua-500); }
+  50%      { background: var(--aqua-200); color: var(--aqua-700); }
+}
+@keyframes chat-iconbtn-shake {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(-1px, 0.5px); }
+  50%      { transform: translate(1px, -0.5px); }
+  75%      { transform: translate(-0.5px, 1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-iconbtn--attention,
+  .chat-iconbtn--shake {
+    animation: none;
+    background: var(--aqua-100);
+    color: var(--aqua-700);
+  }
+}
 .chat-mobile-close {
   display: none;
 }
