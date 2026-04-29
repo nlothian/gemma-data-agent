@@ -144,6 +144,11 @@ export async function ensureLoaded(modelId: LocalGemmaId): Promise<void> {
   }
 }
 
+function isInputTooLongError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return msg.includes('Input is too long for the model to process');
+}
+
 export interface GenerateOptions {
   prompt: string;
   signal?: AbortSignal;
@@ -197,6 +202,9 @@ export async function generate(opts: GenerateOptions): Promise<string> {
       });
     } catch (err) {
       if (signal) signal.removeEventListener('abort', onAbort);
+      if (isInputTooLongError(err)) {
+        console.log('[llmService] Input too long for model. Prompt was:\n', prompt);
+      }
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
