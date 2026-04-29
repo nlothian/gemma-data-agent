@@ -72,6 +72,12 @@ export default function useSandboxConfig(): UseSandboxConfigResult {
   };
 }
 
-export function useLoadedSandboxFiles(): LoadedSandboxFile[] {
-  return useSyncExternalStore(files.subscribe, files.getLoadedSandboxFiles, () => []);
+const EMPTY_LOADED_SANDBOX_FILES: readonly LoadedSandboxFile[] = [];
+
+export function useLoadedSandboxFiles(): readonly LoadedSandboxFile[] {
+  return useSyncExternalStore(
+    files.subscribe,
+    files.getLoadedSandboxFiles,
+    () => EMPTY_LOADED_SANDBOX_FILES,
+  );
 }
