@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import LLMSettingsSection from './LLMSettingsSection';
+import SandboxSettingsSection from './SandboxSettingsSection';
 import { CloseIcon } from './Icons';
 import useLLMConfig from '../hooks/useLLMConfig';
 import { LOCAL_GEMMA_ENDPOINT } from '../types/llm';
@@ -160,6 +161,7 @@ export default function SettingsOverlay({ open, onClose }: SettingsOverlayProps)
           </button>
         </div>
         <LLMSettingsSection />
+        <SandboxSettingsSection />
       </aside>
     </>,
     document.body

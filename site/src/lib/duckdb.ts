@@ -1,16 +1,16 @@
 import type * as duckdb from '@duckdb/duckdb-wasm';
-import { Table as ArrowTable, tableToIPC, type RecordBatch } from 'apache-arrow';
+import {
+  Table as ArrowTable,
+  tableFromIPC,
+  tableToIPC,
+  type RecordBatch,
+} from 'apache-arrow';
 
 export const MAX_DISPLAY_ROWS = 1000;
 
 export interface DuckDBHandle {
   db: duckdb.AsyncDuckDB;
   conn: duckdb.AsyncDuckDBConnection;
-}
-
-export interface RegisteredArrowTable {
-  name: string;
-  byteLength: number;
 }
 
 export interface TabularResult {
@@ -30,21 +30,76 @@ export interface LoadedTable {
   rowCount: number;
 }
 
-const arrowTableRegistry = new Map<string, Uint8Array>();
+/**
+ * The unified Python-input registry. Every named buffer that the agent has
+ * staged for `RunPython` lives here — whether it came from `LoadData`,
+ * `RunSQL(register_as=…)`, or `RunPython`'s `arrow_tables` return. The Python
+ * side sees these as `arrow_inputs[name]: bytes`; the `encoding` field tells
+ * the agent how to decode each one.
+ */
+export type InputEncoding = 'arrow-ipc' | 'raw-bytes';
+export type InputSource = 'sql' | 'sandbox' | 'url' | 'python';
+
+export interface RegisteredInputMeta {
+  name: string;
+  encoding: InputEncoding;
+  format: string;
+  source: InputSource;
+  sourcePath?: string;
+  schema?: { name: string; type: string }[];
+  rowCount?: number;
+  byteLength: number;
+  publishedAt: number;
+}
+
+interface RegisteredInputEntry extends RegisteredInputMeta {
+  buffer: Uint8Array;
+}
+
+const inputRegistry = new Map<string, RegisteredInputEntry>();
 const loadedTables = new Map<string, LoadedTable>();
 
-export function registerArrowTable(name: string, buffer: Uint8Array): void {
-  arrowTableRegistry.set(name, buffer);
+export interface RegisterInputOptions {
+  encoding: InputEncoding;
+  format: string;
+  source: InputSource;
+  sourcePath?: string;
+  schema?: { name: string; type: string }[];
+  rowCount?: number;
 }
 
-export function getArrowTable(name: string): Uint8Array | undefined {
-  return arrowTableRegistry.get(name);
-}
-
-export function listArrowTables(): RegisteredArrowTable[] {
-  return Array.from(arrowTableRegistry, ([name, buf]) => ({
+export function registerInput(
+  name: string,
+  buffer: Uint8Array,
+  opts: RegisterInputOptions,
+): void {
+  inputRegistry.set(name, {
     name,
-    byteLength: buf.byteLength,
+    buffer,
+    byteLength: buffer.byteLength,
+    publishedAt: Date.now(),
+    ...opts,
+  });
+}
+
+export function unregisterInput(name: string): void {
+  inputRegistry.delete(name);
+}
+
+export function getInputBuffer(name: string): Uint8Array | undefined {
+  return inputRegistry.get(name)?.buffer;
+}
+
+export function listInputs(): RegisteredInputMeta[] {
+  return Array.from(inputRegistry.values()).map(
+    ({ buffer: _b, ...meta }) => meta,
+  );
+}
+
+export function listInputBuffers(): { name: string; buffer: Uint8Array }[] {
+  return Array.from(inputRegistry.values()).map(({ name, buffer }) => ({
+    name,
+    buffer,
   }));
 }
 
@@ -139,6 +194,24 @@ export async function loadArrowIntoDuckDB(
   });
 }
 
+/**
+ * Read schema + row count from an Arrow IPC stream without copying the bytes
+ * into DuckDB. Used to backfill metadata when Python republishes tables.
+ */
+export function describeArrowIpc(buffer: Uint8Array): {
+  schema: { name: string; type: string }[];
+  rowCount: number;
+} {
+  const table = tableFromIPC(buffer);
+  return {
+    schema: table.schema.fields.map((f) => ({
+      name: f.name,
+      type: String(f.type),
+    })),
+    rowCount: table.numRows,
+  };
+}
+
 export function arrowTableToIPC(table: ArrowTable): Uint8Array {
   return tableToIPC(table, 'stream');
 }
@@ -168,6 +241,34 @@ function readerFor(format: DataFormat, virtualPath: string): string {
   if (format === 'csv') return `read_csv_auto(${lit})`;
   if (format === 'json') return `read_json_auto(${lit})`;
   return `read_parquet(${lit})`;
+}
+
+/**
+ * Run `SELECT * FROM <tableName>`, serialize the result as an Arrow IPC
+ * stream, and publish it under `tableName` in the input registry so
+ * `RunPython` can read `arrow_inputs[tableName]` without an extra `RunSQL`
+ * round-trip. Used after `LoadData` succeeds for a tabular file.
+ */
+export async function publishTableAsInput(
+  tableName: string,
+  meta: { format: string; source: InputSource; sourcePath?: string },
+): Promise<void> {
+  if (!TABLE_NAME_RE.test(tableName)) return;
+  const { conn } = await getDuckDB();
+  const table = await conn.query(`SELECT * FROM ${quoteIdent(tableName)}`);
+  const ipc = arrowTableToIPC(table);
+  const schema = table.schema.fields.map((f) => ({
+    name: f.name,
+    type: String(f.type),
+  }));
+  registerInput(tableName, ipc, {
+    encoding: 'arrow-ipc',
+    format: meta.format,
+    source: meta.source,
+    sourcePath: meta.sourcePath,
+    schema,
+    rowCount: table.numRows,
+  });
 }
 
 export async function loadDataFromURL(
@@ -207,12 +308,35 @@ export async function loadDataFromURL(
   }
   const buffer = new Uint8Array(await response.arrayBuffer());
 
+  const loaded = await registerAndLoadBuffer(tableName, buffer, format, url);
+  await publishTableAsInput(tableName, { format, source: 'url', sourcePath: url });
+  return loaded;
+}
+
+/**
+ * Register a byte buffer in DuckDB's virtual filesystem and create a table
+ * over it. Shared between URL loading (loadDataFromURL) and local-file loading
+ * (sandboxFiles.loadSandboxFile).
+ */
+export async function registerAndLoadBuffer(
+  tableName: string,
+  buffer: Uint8Array,
+  format: DataFormat,
+  source: string,
+  virtualPath?: string,
+): Promise<LoadedTable> {
+  if (!TABLE_NAME_RE.test(tableName)) {
+    throw new Error(
+      `Invalid table_name "${tableName}": must match [A-Za-z_][A-Za-z0-9_]*.`
+    );
+  }
+
   const { db, conn } = await getDuckDB();
-  const virtualPath = `loaddata_${tableName}_${Date.now()}.${format}`;
-  await db.registerFileBuffer(virtualPath, buffer);
+  const vpath = virtualPath ?? `loaddata_${tableName}_${Date.now()}.${format}`;
+  await db.registerFileBuffer(vpath, buffer);
 
   const ident = quoteIdent(tableName);
-  const reader = readerFor(format, virtualPath);
+  const reader = readerFor(format, vpath);
   await conn.query(`CREATE OR REPLACE TABLE ${ident} AS SELECT * FROM ${reader}`);
 
   const [describeTable, countTable] = await Promise.all([
@@ -232,9 +356,39 @@ export async function loadDataFromURL(
   const rowCount =
     typeof rowCountRaw === 'bigint' ? Number(rowCountRaw) : Number(rowCountRaw);
 
-  const loaded: LoadedTable = { name: tableName, url, format, schema, rowCount };
+  const loaded: LoadedTable = { name: tableName, url: source, format, schema, rowCount };
   loadedTables.set(tableName, loaded);
   return loaded;
+}
+
+/**
+ * Register a buffer in DuckDB's virtual filesystem without creating a table.
+ * Used for non-tabular sandbox files (md, txt, pdf, docx, py, sql) so that
+ * SQL functions like read_text() / read_blob() can access them.
+ */
+export async function registerFileBufferOnly(
+  virtualPath: string,
+  buffer: Uint8Array,
+): Promise<void> {
+  const { db } = await getDuckDB();
+  await db.registerFileBuffer(virtualPath, buffer);
+}
+
+export async function dropVirtualFile(virtualPath: string): Promise<void> {
+  const { db } = await getDuckDB();
+  try {
+    await db.dropFile(virtualPath);
+  } catch {
+    // dropFile throws if the file isn't registered — best-effort.
+  }
+}
+
+export async function dropTableIfExists(tableName: string): Promise<void> {
+  if (!TABLE_NAME_RE.test(tableName)) return;
+  const { conn } = await getDuckDB();
+  await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName)}`);
+  loadedTables.delete(tableName);
+  unregisterInput(tableName);
 }
 
 function quoteIdent(name: string): string {

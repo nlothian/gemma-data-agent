@@ -2,7 +2,13 @@ import agentSystemPromptMd from './agentSystemPrompt.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
-import { MAX_DISPLAY_ROWS, type DataFormat, type LoadedTable, type TabularResult } from './duckdb';
+import {
+  MAX_DISPLAY_ROWS,
+  type DataFormat,
+  type LoadedTable,
+  type RegisteredInputMeta,
+  type TabularResult,
+} from './duckdb';
 
 export type ToolError = {
   error: string;
@@ -19,7 +25,18 @@ export type RunPythonResult =
     }
   | (ToolError & { stdout?: string; stderr?: string });
 
-export type RunLoadDataResult = LoadedTable | ToolError;
+export interface LoadedSandboxFileResult {
+  kind: 'sandbox-file';
+  name: string;
+  path: string;
+  format: 'text' | 'binary' | 'xlsx';
+  sizeBytes: number;
+  virtualPath: string;
+}
+
+export type RunLoadDataResult = LoadedTable | LoadedSandboxFileResult | ToolError;
+
+export type RunListInputsResult = { inputs: RegisteredInputMeta[] } | ToolError;
 
 const BROWSER_ONLY_ERROR =
   'Tools can only run in the browser; this call was made in a non-browser context.';
@@ -55,13 +72,24 @@ export async function runSQL(
       getDuckDB,
       arrowTableToTabularResult,
       arrowTableToIPC,
-      registerArrowTable,
+      registerInput,
       runStreamingSql,
     } = await import('./duckdb');
     if (registerAs) {
       const { conn } = await getDuckDB();
       const table = await conn.query(sql);
-      registerArrowTable(registerAs, arrowTableToIPC(table));
+      const ipc = arrowTableToIPC(table);
+      registerInput(registerAs, ipc, {
+        encoding: 'arrow-ipc',
+        format: 'sql-result',
+        source: 'sql',
+        sourcePath: sql,
+        schema: table.schema.fields.map((f) => ({
+          name: f.name,
+          type: String(f.type),
+        })),
+        rowCount: table.numRows,
+      });
       return arrowTableToTabularResult(table);
     }
     return await runStreamingSql(sql);
@@ -89,6 +117,52 @@ export async function runLoadData(
 }
 
 /**
+ * Load a file from the user's chosen sandbox directory. Tabular formats
+ * (csv/json/parquet/xlsx) become DuckDB tables; non-tabular formats
+ * (md/txt/py/sql/pdf/docx) are registered as bytes accessible from RunPython
+ * via `arrow_inputs[name]`.
+ */
+export async function runLoadDataLocal(
+  relativePath: string,
+  registerAs: string,
+): Promise<RunLoadDataResult> {
+  if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
+  try {
+    const { loadSandboxFileByPath } = await import('./sandboxFiles');
+    const loaded = await loadSandboxFileByPath(relativePath, registerAs);
+    if (loaded.tableName && loaded.schema && loaded.rowCount !== undefined) {
+      const tableFormat: DataFormat = loaded.format === 'json' ? 'json' : 'csv';
+      return {
+        name: loaded.tableName,
+        url: relativePath,
+        format: tableFormat,
+        schema: loaded.schema,
+        rowCount: loaded.rowCount,
+      } satisfies LoadedTable;
+    }
+    return {
+      kind: 'sandbox-file',
+      name: loaded.name,
+      path: loaded.relativePath,
+      format: loaded.format as 'text' | 'binary' | 'xlsx',
+      sizeBytes: loaded.sizeBytes,
+      virtualPath: loaded.virtualPath,
+    };
+  } catch (err) {
+    const name = (err as { name?: string } | null)?.name;
+    if (name === 'NotFoundError') {
+      return { error: `File not found in sandbox: ${relativePath}` };
+    }
+    if (name === 'NotAllowedError') {
+      return {
+        error: 'Permission lost — re-authorise the sandbox in Settings → Sandbox.',
+      };
+    }
+    return { error: errorMessage(err) };
+  }
+}
+
+/**
  * Execute a Python snippet in Pyodide. Arrow tables previously published via
  * `RunSQL(register_as=...)` are exposed as `arrow_inputs: dict[str, bytes]`.
  * Assigning `arrow_tables = {name: ipc_bytes, ...}` registers each entry into
@@ -101,21 +175,30 @@ export async function runPython(code: string): Promise<RunPythonResult> {
       import('./pyodide'),
       import('./duckdb'),
     ]);
-    const { listArrowTables, getArrowTable, registerArrowTable, loadArrowIntoDuckDB } = duck;
+    const { listInputBuffers, registerInput, loadArrowIntoDuckDB, describeArrowIpc } = duck;
 
-    const inputs = listArrowTables()
-      .map(({ name }) => {
-        const buffer = getArrowTable(name);
-        return buffer ? { name, buffer } : null;
-      })
-      .filter((x): x is { name: string; buffer: Uint8Array } => x !== null);
+    const inputs = listInputBuffers();
 
     const res = await runInPyodide(code, inputs);
 
     if (res.ok) {
       if (res.arrowTables && res.arrowTables.length > 0) {
         for (const { name, buffer } of res.arrowTables) {
-          registerArrowTable(name, buffer);
+          let schema: { name: string; type: string }[] | undefined;
+          let rowCount: number | undefined;
+          try {
+            ({ schema, rowCount } = describeArrowIpc(buffer));
+          } catch {
+            // Malformed IPC — register without schema; loadArrowIntoDuckDB
+            // will surface a more useful error if the buffer is bad.
+          }
+          registerInput(name, buffer, {
+            encoding: 'arrow-ipc',
+            format: 'python-result',
+            source: 'python',
+            schema,
+            rowCount,
+          });
           await loadArrowIntoDuckDB(name, buffer);
         }
       }
@@ -131,6 +214,21 @@ export async function runPython(code: string): Promise<RunPythonResult> {
       stdout: res.stdout,
       stderr: res.stderr,
     };
+  } catch (err) {
+    return { error: errorMessage(err) };
+  }
+}
+
+/**
+ * List every named buffer currently available to RunPython as
+ * `arrow_inputs[name]`. Read-only and ungated — this is metadata the agent
+ * can fetch at any time to recover from "what tables / files do I have?".
+ */
+export async function runListInputs(): Promise<RunListInputsResult> {
+  if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
+  try {
+    const { listInputs } = await import('./duckdb');
+    return { inputs: listInputs() };
   } catch (err) {
     return { error: errorMessage(err) };
   }
@@ -220,12 +318,16 @@ export async function runAgentTool(
     }
     return res;
   }
+  if (name === 'ListInputs') {
+    return runListInputs();
+  }
   if (name === 'LoadData') {
     const url = typeof obj.url === 'string' ? obj.url : '';
     const tableName = typeof obj.table_name === 'string' ? obj.table_name : '';
     const fmt = typeof obj.format === 'string' ? obj.format : undefined;
     const format =
       fmt === 'csv' || fmt === 'json' || fmt === 'parquet' ? fmt : undefined;
+    const isRemote = /:\/\//.test(url);
     return runWithGate<RunLoadDataResult>({
       toolName: 'LoadData',
       gateInput: { url, table_name: tableName, format },
@@ -234,7 +336,10 @@ export async function runAgentTool(
       onAborted: () => panel.setAborted('data'),
       onRunning: () => panel.setRunning('data'),
       onResult: panel.setDataResult,
-      run: () => runLoadData(url, tableName, format),
+      run: () =>
+        isRemote
+          ? runLoadData(url, tableName, format)
+          : runLoadDataLocal(url, tableName),
     });
   }
   return { error: `Unknown tool: ${name}` } satisfies ToolError;
@@ -244,29 +349,44 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
   {
     name: 'LoadData',
     description:
-      'Load a remote CSV, JSON, or Parquet file into DuckDB as a table. ' +
-      'Returns { name, url, format, schema: [{name,type}], rowCount } on ' +
-      'success and { error } on failure. The remote server must send CORS ' +
-      'headers (Access-Control-Allow-Origin); if not, the tool returns a ' +
-      'CORS-aware error — surface that error to the user verbatim, do not ' +
-      'retry the same URL. Prefer this over fetching files inside RunPython.',
+      'Load a data file by URL or by a path inside the user\'s sandbox ' +
+      'directory. If `url` contains "://" it is treated as a remote URL; ' +
+      'otherwise it is a relative path inside the sandbox directory the ' +
+      'user picked in Settings (e.g. "reports/sales.csv"). For tabular ' +
+      'formats (csv, json, parquet, xlsx) a DuckDB table named `table_name` ' +
+      'is created AND the table is auto-published to the Python input ' +
+      'registry as Arrow IPC under the same `table_name`, so RunPython can ' +
+      'immediately read `arrow_inputs[table_name]` with ' +
+      '`pa.ipc.open_stream(...).read_all()` (no extra RunSQL needed). For ' +
+      'non-tabular sandbox files (md, txt, py, sql, pdf, docx) the raw bytes ' +
+      'are registered under `table_name` and read in RunPython as ' +
+      '`arrow_inputs[table_name]: bytes`. Use ListInputs to inspect the ' +
+      'registry; the entry\'s `encoding` field tells you how to decode. ' +
+      'Remote URLs require CORS (Access-Control-Allow-Origin); on CORS ' +
+      'failure surface the error verbatim and do not retry. Prefer this over ' +
+      'fetching files inside RunPython.',
     parameters: {
       type: 'object',
       properties: {
         url: {
           type: 'string',
-          description: 'Public URL of the data file to load.',
+          description:
+            'Public URL of a remote data file, or a path relative to the ' +
+            'user\'s sandbox directory (e.g. "reports/sales.csv"). Strings ' +
+            'containing "://" are URLs.',
         },
         table_name: {
           type: 'string',
           description:
-            'DuckDB table name to create. Must match [A-Za-z_][A-Za-z0-9_]*.',
+            'DuckDB table name for tabular files; arrow_inputs key for ' +
+            'non-tabular files. Must match [A-Za-z_][A-Za-z0-9_]*.',
         },
         format: {
           type: 'string',
-          enum: ['csv', 'json', 'parquet'],
+          enum: ['csv', 'json', 'parquet', 'xlsx'],
           description:
-            'Optional format override; inferred from the URL extension otherwise.',
+            'Optional format override for tabular loads; inferred from the ' +
+            'extension otherwise.',
         },
       },
       required: ['url', 'table_name'],
@@ -281,10 +401,13 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
       'boolean }. On failure returns { error: string }. The `rows` array is ' +
       `capped at the first ${MAX_DISPLAY_ROWS} rows for preview; ` +
       '`truncated: true` means more rows exist — add a LIMIT/aggregation or ' +
-      'use `register_as` to route the full result to RunPython. If ' +
-      '`register_as` is set, the full result is stored as an Arrow IPC ' +
-      'buffer that subsequent RunPython calls can read via ' +
-      'arrow_inputs["<register_as>"].',
+      'use `register_as` to route the full result to RunPython. ' +
+      'When `register_as` is set, the full result is published to the input ' +
+      'registry as Arrow IPC and shows up as `arrow_inputs["<register_as>"]` ' +
+      'in subsequent RunPython calls (decode with ' +
+      '`pa.ipc.open_stream(...).read_all()`). Use this for derived results; ' +
+      'tables created by LoadData are auto-published under their table name ' +
+      'and do not need register_as.',
     parameters: {
       type: 'object',
       properties: {
@@ -308,9 +431,17 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
     description:
       'Execute a snippet of Python in Pyodide. Returns { result, stdout, ' +
       'stderr } where `result` is the str() of the last expression. On ' +
-      'failure returns { error, stdout, stderr }. Tables registered by prior ' +
-      'RunSQL calls are available as arrow_inputs[name]: bytes. Assigning ' +
-      'arrow_tables = {"name": ipc_bytes, ...} loads each entry into DuckDB.',
+      'failure returns { error, stdout, stderr }. ' +
+      'IMPORTANT: Pyodide runs in a separate Worker and CANNOT connect to ' +
+      'DuckDB — `pandas.read_sql_query`, `duckdb.connect`, SQLAlchemy etc. ' +
+      'will fail. The only bridge is `arrow_inputs[name]: bytes`, populated ' +
+      'by LoadData (auto), RunSQL(register_as=...), and prior RunPython ' +
+      '`arrow_tables` returns. Call ListInputs to see what\'s available and ' +
+      'each entry\'s `encoding` (\"arrow-ipc\" → use ' +
+      '`pa.ipc.open_stream(arrow_inputs[name]).read_all()`; \"raw-bytes\" → ' +
+      'use TextDecoder / pypdf / etc. on the bytes). Assigning ' +
+      '`arrow_tables = {"name": ipc_bytes, ...}` loads each entry into ' +
+      'DuckDB and republishes it.',
     parameters: {
       type: 'object',
       properties: {
@@ -320,6 +451,24 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
         },
       },
       required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'ListInputs',
+    description:
+      'List every named buffer currently available to RunPython as ' +
+      '`arrow_inputs[name]`. Returns { inputs: Array<{ name, encoding, ' +
+      'format, source, sourcePath?, schema?, rowCount?, byteLength, ' +
+      'publishedAt }> }. `encoding` is "arrow-ipc" (decode with ' +
+      '`pa.ipc.open_stream(...).read_all()`) or "raw-bytes" (decode with ' +
+      'TextDecoder / pypdf / etc. per `format`). `source` is one of "url", ' +
+      '"sandbox", "sql", "python". Read-only and ungated; safe to call any ' +
+      'time the agent needs to recover the registry state (e.g. after a ' +
+      'page reload).',
+    parameters: {
+      type: 'object',
+      properties: {},
       additionalProperties: false,
     },
   },

@@ -9,8 +9,8 @@ interface Props {
 }
 
 const {
-  title = "Lumen",
-  description = "A design language for learning.",
+  title = "How Agents Work",
+  description = "How Agents Work, powered by Gemma",
 } = Astro.props;
 ---
 
@@ -50,6 +50,6 @@ const {
     <main class="container">
       <slot />
     </main>
-    <ChatSidebar client:idle />
+    <ChatSidebar client:only="react" />
   </body>
 </html>

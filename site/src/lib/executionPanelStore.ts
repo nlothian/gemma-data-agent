@@ -7,8 +7,19 @@
  * or setAborted on gate abort.
  */
 
-import type { RunLoadDataResult, RunPythonResult, RunSQLResult } from './agentTools';
+import type {
+  LoadedSandboxFileResult,
+  RunLoadDataResult,
+  RunPythonResult,
+  RunSQLResult,
+} from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
+
+function isSandboxFileResult(
+  res: LoadedTable | LoadedSandboxFileResult,
+): res is LoadedSandboxFileResult {
+  return (res as LoadedSandboxFileResult).kind === 'sandbox-file';
+}
 
 export type PaneKind = 'data' | 'python' | 'sql';
 export type PaneStatus =
@@ -266,6 +277,20 @@ export function setDataResult(res: RunLoadDataResult): void {
         ...snapshot.data,
         status: 'error',
         errorMessage: res.error,
+      },
+    });
+    return;
+  }
+  // Non-tabular sandbox loads: registry is updated by sandboxFiles, no table.
+  if (isSandboxFileResult(res)) {
+    setSnapshot({
+      ...snapshot,
+      data: {
+        ...snapshot.data,
+        status: 'done',
+        pendingUrl: undefined,
+        pendingTable: undefined,
+        errorMessage: undefined,
       },
     });
     return;

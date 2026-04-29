@@ -1,5 +1,11 @@
+import { useMemo } from 'react';
 import type { LoadedTable } from '../lib/duckdb';
 import type { PaneStatus } from '../lib/executionPanelStore';
+import type { SandboxFileEntry } from '../lib/sandboxStore';
+import type { LoadedSandboxFile } from '../lib/sandboxFiles';
+import useSandboxConfig, {
+  useLoadedSandboxFiles,
+} from '../hooks/useSandboxConfig';
 
 interface DataPanelProps {
   tables: LoadedTable[];
@@ -62,6 +68,8 @@ export default function DataPanel({
           ))}
         </div>
       )}
+
+      <SandboxFilesSection />
     </div>
   );
 }
@@ -104,7 +112,123 @@ function TableCard({ table }: { table: LoadedTable }) {
   );
 }
 
+function SandboxFilesSection() {
+  const { status, directoryName, files, reAuthorise } = useSandboxConfig();
+  const loaded = useLoadedSandboxFiles();
+  const loadedByPath = useMemo(
+    () => new Map(loaded.map((f) => [f.relativePath, f])),
+    [loaded],
+  );
+  const groups = useMemo(() => groupFilesByDir(files), [files]);
+
+  if (status === 'loading' || status === 'unsupported') return null;
+
+  if (status === 'unset') {
+    return (
+      <div className="sandbox-empty">
+        Pick a sandbox directory in Settings to enable local files.
+      </div>
+    );
+  }
+
+  if (status === 'permission-denied') {
+    return (
+      <div className="sandbox-permission-banner" role="alert">
+        <strong>Permission denied</strong>
+        <p>
+          Access to <code>{directoryName ?? '?'}</code> needs to be re-granted
+          before files can be listed or loaded.
+        </p>
+        <button type="button" onClick={() => void reAuthorise()}>
+          Re-authorise
+        </button>
+      </div>
+    );
+  }
+
+  if (files.length === 0) {
+    return (
+      <div className="sandbox-empty">
+        No supported files in <code>{directoryName ?? '?'}</code>.
+      </div>
+    );
+  }
+
+  return (
+    <section className="sandbox-files">
+      <header className="sandbox-files-header">
+        <h3>Files ({files.length})</h3>
+        <span className="sandbox-dir">{directoryName}</span>
+      </header>
+      {groups.map((group) => (
+        <div className="sandbox-files-group" key={group.dir || '/'}>
+          <div className="sandbox-files-group-label">
+            {group.dir ? group.dir + '/' : './'}
+          </div>
+          {group.files.map((f) => (
+            <FileRow
+              key={f.relativePath}
+              file={f}
+              loaded={loadedByPath.get(f.relativePath)}
+            />
+          ))}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function FileRow({
+  file,
+  loaded,
+}: {
+  file: SandboxFileEntry;
+  loaded?: LoadedSandboxFile;
+}) {
+  return (
+    <div className="sandbox-file-row" title={file.relativePath}>
+      <span className="sandbox-file-name">{file.name}</span>
+      <span className="sandbox-file-ext">{file.ext}</span>
+      <span className="sandbox-file-size">{formatSize(file.sizeBytes)}</span>
+      {loaded && (
+        <span
+          className="sandbox-file-loaded-badge"
+          title={loaded.tableName ? `Table: ${loaded.tableName}` : 'Loaded'}
+        >
+          {loaded.tableName ? `→ ${loaded.tableName}` : 'loaded'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function groupFilesByDir(
+  files: SandboxFileEntry[],
+): { dir: string; files: SandboxFileEntry[] }[] {
+  const map = new Map<string, SandboxFileEntry[]>();
+  for (const f of files) {
+    const slash = f.relativePath.lastIndexOf('/');
+    const dir = slash < 0 ? '' : f.relativePath.slice(0, slash);
+    const list = map.get(dir);
+    if (list) {
+      list.push(f);
+    } else {
+      map.set(dir, [f]);
+    }
+  }
+  return Array.from(map, ([dir, files]) => ({ dir, files })).sort((a, b) =>
+    a.dir.localeCompare(b.dir),
+  );
+}
+
 function formatRowCount(n: number): string {
   if (!Number.isFinite(n)) return String(n);
   return n.toLocaleString();
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
 }
