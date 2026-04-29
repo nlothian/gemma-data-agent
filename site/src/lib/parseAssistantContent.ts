@@ -1,22 +1,60 @@
 export type AssistantSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; name: string; args: string; result: string | null };
+  | { kind: 'tool'; name: string; args: string; result: string | null }
+  | { kind: 'thinking'; text: string; done: boolean };
 
 const CALL_MARKER = '\n\n→ ';
 const RESULT_MARKER = '← ';
+const THINKING_OPEN = '<|channel>thought\n';
+const THINKING_CLOSE = '<channel|>';
 
 export function parseAssistantContent(content: string): AssistantSegment[] {
   const segments: AssistantSegment[] = [];
   let cursor = 0;
 
   while (cursor < content.length) {
-    const markerStart = content.indexOf(CALL_MARKER, cursor);
-    if (markerStart === -1) {
+    const callStart = content.indexOf(CALL_MARKER, cursor);
+    const thinkStart = content.indexOf(THINKING_OPEN, cursor);
+
+    // Pick whichever marker appears first (smallest non -1 index).
+    let nextMarker: 'call' | 'thinking' | null = null;
+    if (callStart !== -1 && (thinkStart === -1 || callStart < thinkStart)) {
+      nextMarker = 'call';
+    } else if (thinkStart !== -1) {
+      nextMarker = 'thinking';
+    }
+
+    if (nextMarker === null) {
       if (cursor < content.length) {
         segments.push({ kind: 'text', text: content.slice(cursor) });
       }
       break;
     }
+
+    if (nextMarker === 'thinking') {
+      if (thinkStart > cursor) {
+        segments.push({ kind: 'text', text: content.slice(cursor, thinkStart) });
+      }
+      const innerStart = thinkStart + THINKING_OPEN.length;
+      const closeAt = content.indexOf(THINKING_CLOSE, innerStart);
+      if (closeAt === -1) {
+        segments.push({
+          kind: 'thinking',
+          text: content.slice(innerStart),
+          done: false,
+        });
+        break;
+      }
+      segments.push({
+        kind: 'thinking',
+        text: content.slice(innerStart, closeAt),
+        done: true,
+      });
+      cursor = closeAt + THINKING_CLOSE.length;
+      continue;
+    }
+
+    const markerStart = callStart;
 
     if (markerStart > cursor) {
       segments.push({ kind: 'text', text: content.slice(cursor, markerStart) });

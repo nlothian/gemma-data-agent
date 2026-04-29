@@ -7,8 +7,9 @@ import {
   type LLMConfig,
 } from '../types/llm';
 
-type StoredLLMConfig = Omit<LLMConfig, 'models'> & {
+type StoredLLMConfig = Omit<LLMConfig, 'models' | 'thinkingEnabled'> & {
   models?: Record<string, string>;
+  thinkingEnabled?: Record<string, boolean>;
 };
 
 function isLLMConfigShape(value: unknown): value is StoredLLMConfig {
@@ -21,7 +22,12 @@ function isLLMConfigShape(value: unknown): value is StoredLLMConfig {
   const modelsOk =
     v.models === undefined ||
     (v.models !== null && typeof v.models === 'object' && !Array.isArray(v.models));
-  return activeOk && customOk && keysOk && modelsOk;
+  const thinkingOk =
+    v.thinkingEnabled === undefined ||
+    (v.thinkingEnabled !== null &&
+      typeof v.thinkingEnabled === 'object' &&
+      !Array.isArray(v.thinkingEnabled));
+  return activeOk && customOk && keysOk && modelsOk && thinkingOk;
 }
 
 function readStorage(): LLMConfig | null {
@@ -36,6 +42,7 @@ function readStorage(): LLMConfig | null {
       customEndpoints: parsed.customEndpoints,
       apiKeys: parsed.apiKeys,
       models: parsed.models ?? {},
+      thinkingEnabled: parsed.thinkingEnabled ?? {},
     };
   } catch {
     return null;
@@ -104,6 +111,7 @@ export interface UseLLMConfigResult {
   setActiveEndpoint: (url: string | null) => void;
   setApiKey: (endpointUrl: string, apiKey: string) => void;
   setModel: (endpointUrl: string, model: string) => void;
+  setThinkingEnabled: (endpointUrl: string, enabled: boolean) => void;
   addCustomEndpoint: () => string;
   updateCustomEndpoint: (
     id: string,
@@ -145,6 +153,21 @@ export function useLLMConfig(): UseLLMConfigResult {
     });
   }, []);
 
+  const setThinkingEnabled = useCallback(
+    (endpointUrl: string, enabled: boolean): void => {
+      update((prev) => {
+        const next: Record<string, boolean> = { ...prev.thinkingEnabled };
+        if (enabled) {
+          next[endpointUrl] = true;
+        } else {
+          delete next[endpointUrl];
+        }
+        return { ...prev, thinkingEnabled: next };
+      });
+    },
+    [],
+  );
+
   const addCustomEndpoint = useCallback((): string => {
     const id = generateId();
     update((prev) => {
@@ -167,6 +190,7 @@ export function useLLMConfig(): UseLLMConfigResult {
 
         let apiKeys = prev.apiKeys;
         let models = prev.models;
+        let thinkingEnabled = prev.thinkingEnabled;
         let activeEndpoint = prev.activeEndpoint;
 
         if (patch.url !== undefined && patch.url !== existing.url) {
@@ -174,6 +198,8 @@ export function useLLMConfig(): UseLLMConfigResult {
           const newUrl = patch.url;
           const keyForOld = oldUrl ? prev.apiKeys[oldUrl] : undefined;
           const modelForOld = oldUrl ? prev.models[oldUrl] : undefined;
+          const thinkingForOld =
+            oldUrl ? prev.thinkingEnabled[oldUrl] : undefined;
 
           if (oldUrl && oldUrl in prev.apiKeys) {
             const { [oldUrl]: _removedKey, ...restKeys } = prev.apiKeys;
@@ -189,12 +215,26 @@ export function useLLMConfig(): UseLLMConfigResult {
           if (newUrl && modelForOld !== undefined) {
             models = { ...models, [newUrl]: modelForOld };
           }
+          if (oldUrl && oldUrl in prev.thinkingEnabled) {
+            const { [oldUrl]: _removedThinking, ...restThinking } =
+              prev.thinkingEnabled;
+            thinkingEnabled = restThinking;
+          }
+          if (newUrl && thinkingForOld === true) {
+            thinkingEnabled = { ...thinkingEnabled, [newUrl]: true };
+          }
           if (activeEndpoint === oldUrl) {
             activeEndpoint = newUrl === '' ? null : newUrl;
           }
         }
 
-        return { activeEndpoint, customEndpoints, apiKeys, models };
+        return {
+          activeEndpoint,
+          customEndpoints,
+          apiKeys,
+          models,
+          thinkingEnabled,
+        };
       });
     },
     [],
@@ -208,6 +248,7 @@ export function useLLMConfig(): UseLLMConfigResult {
       const customEndpoints = prev.customEndpoints.filter((e) => e.id !== id);
       let apiKeys = prev.apiKeys;
       let models = prev.models;
+      let thinkingEnabled = prev.thinkingEnabled;
       if (target.url && target.url in prev.apiKeys) {
         const { [target.url]: _removedKey, ...restKeys } = prev.apiKeys;
         apiKeys = restKeys;
@@ -216,10 +257,21 @@ export function useLLMConfig(): UseLLMConfigResult {
         const { [target.url]: _removedModel, ...restModels } = prev.models;
         models = restModels;
       }
+      if (target.url && target.url in prev.thinkingEnabled) {
+        const { [target.url]: _removedThinking, ...restThinking } =
+          prev.thinkingEnabled;
+        thinkingEnabled = restThinking;
+      }
       const activeEndpoint =
         prev.activeEndpoint === target.url ? null : prev.activeEndpoint;
 
-      return { activeEndpoint, customEndpoints, apiKeys, models };
+      return {
+        activeEndpoint,
+        customEndpoints,
+        apiKeys,
+        models,
+        thinkingEnabled,
+      };
     });
   }, []);
 
@@ -229,6 +281,7 @@ export function useLLMConfig(): UseLLMConfigResult {
     setActiveEndpoint,
     setApiKey,
     setModel,
+    setThinkingEnabled,
     addCustomEndpoint,
     updateCustomEndpoint,
     removeCustomEndpoint,

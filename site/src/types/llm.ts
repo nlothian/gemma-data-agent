@@ -23,6 +23,7 @@ export interface LLMConfig {
   customEndpoints: CustomEndpoint[];
   apiKeys: Record<string, string>;
   models: Record<string, string>;
+  thinkingEnabled: Record<string, boolean>;
 }
 
 export const EMPTY_LLM_CONFIG: LLMConfig = {
@@ -30,6 +31,7 @@ export const EMPTY_LLM_CONFIG: LLMConfig = {
   customEndpoints: [],
   apiKeys: {},
   models: {},
+  thinkingEnabled: {},
 };
 
 export const LOCAL_GEMMA_ENDPOINT = 'local://gemma';

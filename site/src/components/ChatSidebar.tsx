@@ -24,13 +24,13 @@ import * as executionPanelStore from '../lib/executionPanelStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
 import { getContextWindowForEndpoint, formatTokenCount } from '../lib/contextWindow';
 import type { ChatMessage } from '../types/chat';
-import { isLocalGemmaEndpoint } from '../types/llm';
+import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
+  ChatAddOnIcon,
   ChevronRightIcon,
   CloseIcon,
   PauseIcon,
   PlayIcon,
-  PlusIcon,
   StepIcon,
 } from './Icons';
 import Throbber from './Throbber';
@@ -51,6 +51,39 @@ interface ChatMessageRowProps {
   message: ChatMessage;
   isPending: boolean;
   onRetry: (id: string) => void;
+}
+
+function CollapsibleThinking({ text, done }: { text: string; done: boolean }) {
+  const [expanded, setExpanded] = useState(true);
+  const autoCollapsedRef = useRef(false);
+  useEffect(() => {
+    if (done && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      setExpanded(false);
+    }
+  }, [done]);
+  return (
+    <div className="chat-thinking-block">
+      <button
+        type="button"
+        className="chat-tool-summary"
+        data-expanded={expanded ? 'true' : 'false'}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <ChevronRightIcon size={14} />
+        <span className="chat-tool-name">Thinking</span>
+        {!done && <span className="chat-thinking-pulse" aria-hidden="true" />}
+      </button>
+      {expanded && (
+        <div className="chat-tool-body">
+          <pre>
+            <code>{text || (done ? '' : '…')}</code>
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CollapsibleToolCall({
@@ -113,6 +146,9 @@ function AssistantBody({ content }: { content: string }) {
             </ReactMarkdown>
           );
         }
+        if (seg.kind === 'thinking') {
+          return <CollapsibleThinking key={i} text={seg.text} done={seg.done} />;
+        }
         return (
           <CollapsibleToolCall
             key={i}
@@ -159,7 +195,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
 });
 
 export default function ChatSidebar() {
-  const { config, ready: cfgReady } = useLLMConfig();
+  const { config, ready: cfgReady, setThinkingEnabled } = useLLMConfig();
   const {
     history,
     appendMessage,
@@ -436,17 +472,42 @@ export default function ChatSidebar() {
             {config.activeEndpoint && config.models[config.activeEndpoint] ? (
               <>
                 <span className="chat-model">{config.models[config.activeEndpoint]}</span>
-                <span className="chat-tokens">
-                  {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}
-                  {' / '}
-                  {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
-                </span>
+                {isLocalGemmaEndpoint(config.activeEndpoint) && (
+                  <label className="chat-thinking-toggle">
+                    <input
+                      type="checkbox"
+                      checked={config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false}
+                      onChange={(e) =>
+                        setThinkingEnabled(LOCAL_GEMMA_ENDPOINT, e.target.checked)
+                      }
+                      aria-label="Enable Gemma thinking mode"
+                    />
+                    Thinking
+                  </label>
+                )}
               </>
             ) : (
               <span className="chat-model chat-model-empty">No model</span>
             )}
           </div>
           <div className="chat-header-actions">
+            {config.activeEndpoint && config.models[config.activeEndpoint] && (
+              <span className="chat-tokens">
+                {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}
+                {' / '}
+                {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
+              </span>
+            )}
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onNewChat}
+              title="New chat"
+              aria-label="New chat"
+              disabled={!hasMessages && !isStreaming}
+            >
+              <ChatAddOnIcon size={18} />
+            </button>
             <button
               type="button"
               className="chat-iconbtn chat-mobile-close"
@@ -529,18 +590,6 @@ export default function ChatSidebar() {
           ) : (
             <Throbber />
           )}
-          <div className="chat-toolbar-group">
-            <button
-              type="button"
-              className="chat-iconbtn"
-              onClick={onNewChat}
-              title="New chat"
-              aria-label="New chat"
-              disabled={!hasMessages && !isStreaming}
-            >
-              <PlusIcon size={16} />
-            </button>
-          </div>
         </div>
 
         <div className="chat-composer">

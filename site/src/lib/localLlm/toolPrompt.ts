@@ -162,6 +162,7 @@ export function renderConversationForGemma(
   systemPrompt: string,
   messages: InternalMessage[],
   tools: AgentToolSpec[] = [],
+  thinkingEnabled: boolean = false,
 ): string {
   let out = '';
 
@@ -207,13 +208,20 @@ export function renderConversationForGemma(
   }
 
   // Generation prompt. If the last message was a tool response, the model
-  // continues the same turn with no new <|turn>model\n and no empty-thought
-  // marker. Otherwise open a fresh model turn with the empty-thought marker
-  // (forces non-thinking mode, matching the template's add_generation_prompt
-  // path with enable_thinking=false).
+  // continues the same turn with no new <|turn>model\n and no thought-channel
+  // marker (the `thinkingEnabled` flag does not affect this case). Otherwise
+  // open a fresh model turn: when `thinkingEnabled` is false (default) emit
+  // the empty-thought marker (forces non-thinking mode, matching the template's
+  // add_generation_prompt path with enable_thinking=false); when true, leave
+  // the thought channel open so the model fills it with reasoning and emits
+  // its own `<channel|>` to close.
   if (!lastWasToolResponse) {
     if (modelTurnOpen) out += `${TURN_CLOSE}\n`;
-    out += `${TURN_OPEN}model\n${EMPTY_THOUGHT}`;
+    if (thinkingEnabled) {
+      out += `${TURN_OPEN}model\n${CHANNEL_OPEN}thought\n`;
+    } else {
+      out += `${TURN_OPEN}model\n${EMPTY_THOUGHT}`;
+    }
   }
 
   return out;

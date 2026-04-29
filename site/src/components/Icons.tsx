@@ -1,318 +1,47 @@
 interface IconProps {
   size?: number;
   style?: React.CSSProperties;
-  'aria-hidden'?: boolean;
 }
 
-const baseProps = {
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 2,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-};
+interface MaterialIconProps extends IconProps {
+  name: string;
+  filled?: boolean;
+}
 
-export function SettingsIcon({ size = 16, style }: IconProps) {
+function MaterialIcon({ name, size = 16, filled = false, style }: MaterialIconProps) {
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
+    <span
+      className="material-symbols-outlined"
       aria-hidden="true"
-      {...baseProps}
+      style={{
+        fontSize: size,
+        lineHeight: 1,
+        fontVariationSettings: `'FILL' ${filled ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' ${size}`,
+        userSelect: 'none',
+        ...style,
+      }}
     >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
+      {name}
+    </span>
   );
 }
 
-export function CloseIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-export function EyeIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-export function EyeOffIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
-
-export function PlusIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
-
-export function RefreshIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  );
-}
-
-export function TrashIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <line x1="10" y1="11" x2="10" y2="17" />
-      <line x1="14" y1="11" x2="14" y2="17" />
-    </svg>
-  );
-}
-
-export function AlertCircleIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
-export function SendIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
-    </svg>
-  );
-}
-
-export function StopIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      fill="currentColor"
-      stroke="none"
-    >
-      <rect x="6" y="6" width="12" height="12" rx="2" />
-    </svg>
-  );
-}
-
-export function PlayIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      fill="currentColor"
-      stroke="none"
-    >
-      <polygon points="6 4 20 12 6 20 6 4" />
-    </svg>
-  );
-}
-
-export function PauseIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      fill="currentColor"
-      stroke="none"
-    >
-      <rect x="6" y="5" width="4" height="14" />
-      <rect x="14" y="5" width="4" height="14" />
-    </svg>
-  );
-}
-
-export function StepIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      fill="currentColor"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polygon points="5 4 16 12 5 20 5 4" />
-      <line x1="19" y1="5" x2="19" y2="19" fill="none" />
-    </svg>
-  );
-}
-
-export function ChevronRightIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="9 6 15 12 9 18" />
-    </svg>
-  );
-}
-
-export function ChevronDownIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-export function MaximizeIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="15 3 21 3 21 9" />
-      <polyline points="9 21 3 21 3 15" />
-      <line x1="21" y1="3" x2="14" y2="10" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </svg>
-  );
-}
-
-export function MinimizeIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <polyline points="4 14 10 14 10 20" />
-      <polyline points="20 10 14 10 14 4" />
-      <line x1="14" y1="10" x2="21" y2="3" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </svg>
-  );
-}
-
-export function LoaderIcon({ size = 16, style }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      style={style}
-      aria-hidden="true"
-      {...baseProps}
-    >
-      <line x1="12" y1="2" x2="12" y2="6" />
-      <line x1="12" y1="18" x2="12" y2="22" />
-      <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" />
-      <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" />
-      <line x1="2" y1="12" x2="6" y2="12" />
-      <line x1="18" y1="12" x2="22" y2="12" />
-      <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" />
-      <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" />
-    </svg>
-  );
-}
+export const SettingsIcon = (p: IconProps) => <MaterialIcon name="settings" {...p} />;
+export const CloseIcon = (p: IconProps) => <MaterialIcon name="close" {...p} />;
+export const EyeIcon = (p: IconProps) => <MaterialIcon name="visibility" {...p} />;
+export const EyeOffIcon = (p: IconProps) => <MaterialIcon name="visibility_off" {...p} />;
+export const PlusIcon = (p: IconProps) => <MaterialIcon name="add" {...p} />;
+export const RefreshIcon = (p: IconProps) => <MaterialIcon name="refresh" {...p} />;
+export const TrashIcon = (p: IconProps) => <MaterialIcon name="delete" {...p} />;
+export const AlertCircleIcon = (p: IconProps) => <MaterialIcon name="error" {...p} />;
+export const SendIcon = (p: IconProps) => <MaterialIcon name="send" {...p} />;
+export const StopIcon = (p: IconProps) => <MaterialIcon name="stop" filled {...p} />;
+export const PlayIcon = (p: IconProps) => <MaterialIcon name="play_arrow" filled {...p} />;
+export const PauseIcon = (p: IconProps) => <MaterialIcon name="pause" filled {...p} />;
+export const StepIcon = (p: IconProps) => <MaterialIcon name="skip_next" filled {...p} />;
+export const ChevronRightIcon = (p: IconProps) => <MaterialIcon name="chevron_right" {...p} />;
+export const ChevronDownIcon = (p: IconProps) => <MaterialIcon name="expand_more" {...p} />;
+export const MaximizeIcon = (p: IconProps) => <MaterialIcon name="open_in_full" {...p} />;
+export const MinimizeIcon = (p: IconProps) => <MaterialIcon name="close_fullscreen" {...p} />;
+export const LoaderIcon = (p: IconProps) => <MaterialIcon name="progress_activity" {...p} />;
+export const ChatAddOnIcon = (p: IconProps) => <MaterialIcon name="chat_add_on" {...p} />;
