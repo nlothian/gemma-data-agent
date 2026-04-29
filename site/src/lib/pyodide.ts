@@ -19,6 +19,32 @@ const ARROW_INPUT_PREAMBLE =
   "arrow_inputs = {k: bytes(v) for k, v in __arrow_inputs_raw.items()}\\n" +
   "del __arrow_inputs_raw\\n";
 
+const MATPLOTLIB_PREAMBLE =
+  "import importlib.util as _ilu\\n" +
+  "if _ilu.find_spec('matplotlib') is not None:\\n" +
+  "    import matplotlib\\n" +
+  "    matplotlib.use('Agg')\\n" +
+  "    import matplotlib.pyplot as _plt\\n" +
+  "    _plt.close('all')\\n" +
+  "del _ilu\\n";
+
+const MATPLOTLIB_CAPTURE = "" +
+  "def __capture_mpl():\\n" +
+  "    import importlib.util as _ilu\\n" +
+  "    if _ilu.find_spec('matplotlib') is None:\\n" +
+  "        return []\\n" +
+  "    import io\\n" +
+  "    import matplotlib.pyplot as _plt\\n" +
+  "    out = []\\n" +
+  "    for _num in _plt.get_fignums():\\n" +
+  "        _fig = _plt.figure(_num)\\n" +
+  "        _buf = io.BytesIO()\\n" +
+  "        _fig.savefig(_buf, format='png', bbox_inches='tight')\\n" +
+  "        out.append(_buf.getvalue())\\n" +
+  "    _plt.close('all')\\n" +
+  "    return out\\n" +
+  "__capture_mpl()\\n";
+
 self.onmessage = async (event) => {
   const data = event.data;
   if (!data || typeof data.id !== "number") return;
@@ -47,6 +73,7 @@ self.onmessage = async (event) => {
     }
 
     await pyodide.loadPackagesFromImports(source);
+    await pyodide.runPythonAsync(MATPLOTLIB_PREAMBLE);
     const result = await pyodide.runPythonAsync(source, { globals: ns });
     let resultStr = "";
     if (result !== undefined && result !== null) {
@@ -60,7 +87,46 @@ self.onmessage = async (event) => {
       }
     }
     const arrowTables = [];
+    const images = [];
     const transferables = [];
+
+    const toUint8 = (raw) => {
+      if (raw instanceof Uint8Array) return raw;
+      if (raw && raw.buffer instanceof ArrayBuffer) {
+        return new Uint8Array(raw.buffer, raw.byteOffset || 0, raw.byteLength);
+      }
+      return null;
+    };
+
+    try {
+      const capturedProxy = await pyodide.runPythonAsync(MATPLOTLIB_CAPTURE);
+      if (capturedProxy !== undefined && capturedProxy !== null) {
+        try {
+          const list =
+            typeof capturedProxy.toJs === "function"
+              ? capturedProxy.toJs()
+              : capturedProxy;
+          const items = Array.isArray(list)
+            ? list
+            : list && typeof list[Symbol.iterator] === "function"
+              ? Array.from(list)
+              : [];
+          for (const raw of items) {
+            const buffer = toUint8(raw);
+            if (!buffer) continue;
+            images.push(buffer);
+            transferables.push(buffer.buffer);
+          }
+        } finally {
+          if (capturedProxy && typeof capturedProxy.destroy === "function") {
+            capturedProxy.destroy();
+          }
+        }
+      }
+    } catch {
+      // Capture failures shouldn't break the run; user output is still valid.
+    }
+
     const tablesProxy = ns.get("arrow_tables");
     if (tablesProxy !== undefined && tablesProxy !== null) {
       try {
@@ -75,14 +141,8 @@ self.onmessage = async (event) => {
               ? Object.entries(jsTables)
               : [];
         for (const [name, raw] of entries) {
-          let buffer;
-          if (raw instanceof Uint8Array) {
-            buffer = raw;
-          } else if (raw && raw.buffer instanceof ArrayBuffer) {
-            buffer = new Uint8Array(raw.buffer, raw.byteOffset || 0, raw.byteLength);
-          } else {
-            continue;
-          }
+          const buffer = toUint8(raw);
+          if (!buffer) continue;
           arrowTables.push({ name: String(name), buffer });
           transferables.push(buffer.buffer);
         }
@@ -99,6 +159,7 @@ self.onmessage = async (event) => {
       stdout: stdout.join("\\n"),
       stderr: stderr.join("\\n"),
       arrowTables,
+      images,
     };
     self.postMessage(msg, transferables);
   } catch (error) {
@@ -127,10 +188,7 @@ export interface PyodideArrowTable {
   buffer: Uint8Array;
 }
 
-export interface PyodideArrowInput {
-  name: string;
-  buffer: Uint8Array;
-}
+export type PyodideArrowInput = PyodideArrowTable;
 
 export interface PyodideRunResult {
   ok: boolean;
@@ -139,6 +197,7 @@ export interface PyodideRunResult {
   stdout: string;
   stderr: string;
   arrowTables?: PyodideArrowTable[];
+  images?: Uint8Array[];
 }
 
 interface RunResponseMessage extends PyodideRunResult {

@@ -121,7 +121,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
         }
         const input = safeParseJson(tu.inputJson);
         emit(`\n\n→ ${tu.name}(${tu.inputJson || '{}'})\n`);
-        const result = await runAgentTool(tu.name, input);
+        const result = await runAgentTool(tu.name, input, signal);
         const resultStr = JSON.stringify(result);
         emit(`← ${resultStr}\n\n`);
         resultBlocks.push({ type: 'tool_result', toolUseId: tu.id, content: resultStr });

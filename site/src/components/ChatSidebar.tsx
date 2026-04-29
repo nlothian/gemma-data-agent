@@ -1,20 +1,78 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
+  useSyncExternalStore,
 } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import useLLMConfig from '../hooks/useLLMConfig';
 import useChatHistory from '../hooks/useChatHistory';
 import { streamChat, type StreamChatMessage } from '../lib/streamChat';
 import { generateId } from '../lib/browser';
 import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
+import * as toolDebugger from '../lib/toolDebugger';
+import * as executionPanelStore from '../lib/executionPanelStore';
 import type { ChatMessage } from '../types/chat';
-import { CloseIcon, PlusIcon, SendIcon, StopIcon } from './Icons';
+import { CloseIcon, PauseIcon, PlayIcon, PlusIcon, StepIcon } from './Icons';
+import Throbber from './Throbber';
+
+const MARKDOWN_PLUGINS = [remarkGfm];
+
+const MARKDOWN_COMPONENTS = {
+  a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a {...props} target="_blank" rel="noopener noreferrer" />
+  ),
+};
+
+interface ChatMessageRowProps {
+  message: ChatMessage;
+  isPending: boolean;
+  onRetry: (id: string) => void;
+}
+
+function renderMessageBody(m: ChatMessage, isPending: boolean) {
+  if (isPending) return <span className="chat-typing">…</span>;
+  if (m.role === 'assistant' && !m.error) {
+    return (
+      <ReactMarkdown
+        remarkPlugins={MARKDOWN_PLUGINS}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {m.content}
+      </ReactMarkdown>
+    );
+  }
+  return m.content;
+}
+
+const ChatMessageRow = memo(function ChatMessageRow({
+  message,
+  isPending,
+  onRetry,
+}: ChatMessageRowProps) {
+  const m = message;
+  return (
+    <div className={`chat-row chat-row-${m.role}`}>
+      <div className={'chat-msg chat-msg-' + (m.error ? 'error' : m.role)}>
+        {renderMessageBody(m, isPending)}
+      </div>
+      {m.error && (
+        <button
+          type="button"
+          className="chat-retry"
+          onClick={() => onRetry(m.id)}
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+});
 
 export default function ChatSidebar() {
   const { config, ready: cfgReady } = useLLMConfig();
@@ -31,6 +89,11 @@ export default function ChatSidebar() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOpenMobile, setIsOpenMobile] = useState(false);
+  const debugger_ = useSyncExternalStore(
+    toolDebugger.subscribe,
+    toolDebugger.getSnapshot,
+    toolDebugger.getServerSnapshot,
+  );
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -48,6 +111,8 @@ export default function ChatSidebar() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      toolDebugger.reset();
+      executionPanelStore.resetPanel();
     };
   }, []);
 
@@ -74,7 +139,7 @@ export default function ChatSidebar() {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px';
   }, []);
 
   const sendPrompt = useCallback(
@@ -112,6 +177,7 @@ export default function ChatSidebar() {
       const controller = new AbortController();
       abortRef.current = controller;
       setIsStreaming(true);
+      executionPanelStore.setLlmActive(true);
       wasAtBottomRef.current = true;
 
       await streamChat({
@@ -123,12 +189,14 @@ export default function ChatSidebar() {
         onDone: () => {
           flush();
           setIsStreaming(false);
+          executionPanelStore.setLlmActive(false);
           abortRef.current = null;
         },
         onError: (err) => {
           setLastAssistantContent(err.message || 'Request failed.', true);
           flush();
           setIsStreaming(false);
+          executionPanelStore.setLlmActive(false);
           abortRef.current = null;
         },
       });
@@ -145,34 +213,32 @@ export default function ChatSidebar() {
     ],
   );
 
-  const onSubmit = useCallback(
-    (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
+  const startOrAdvance = useCallback(
+    (mode: 'running' | 'paused') => {
+      if (debugger_.pending) {
+        if (mode === 'running') toolDebugger.play();
+        else toolDebugger.step();
+        return;
+      }
+      if (isStreaming || input.trim().length === 0 || unconfigured) return;
+      toolDebugger.setMode(mode);
       const text = input;
       setInput('');
-      // Reset textarea height after clearing.
       requestAnimationFrame(() => autoGrow());
       void sendPrompt(text);
     },
-    [autoGrow, input, sendPrompt],
+    [autoGrow, debugger_.pending, input, isStreaming, sendPrompt, unconfigured],
   );
 
-  const onKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const text = input;
-        setInput('');
-        requestAnimationFrame(() => autoGrow());
-        void sendPrompt(text);
-      }
-    },
-    [autoGrow, input, sendPrompt],
-  );
-
-  const onStop = useCallback(() => {
-    abortRef.current?.abort();
+  const onPlay = useCallback(() => startOrAdvance('running'), [startOrAdvance]);
+  const onStep = useCallback(() => startOrAdvance('paused'), [startOrAdvance]);
+  const onPause = useCallback(() => {
+    toolDebugger.pause();
   }, []);
+
+  const submitDisabled =
+    unconfigured ||
+    (!debugger_.pending && (isStreaming || input.trim().length === 0));
 
   const onRetry = useCallback(
     (assistantId: string) => {
@@ -190,6 +256,8 @@ export default function ChatSidebar() {
 
   const onNewChat = useCallback(() => {
     if (isStreaming) abortRef.current?.abort();
+    toolDebugger.reset();
+    executionPanelStore.resetPanel();
     clear();
   }, [clear, isStreaming]);
 
@@ -213,16 +281,6 @@ export default function ChatSidebar() {
           <div className="chat-header-actions">
             <button
               type="button"
-              className="chat-iconbtn"
-              onClick={onNewChat}
-              title="New chat"
-              aria-label="New chat"
-              disabled={!hasMessages && !isStreaming}
-            >
-              <PlusIcon size={16} />
-            </button>
-            <button
-              type="button"
               className="chat-iconbtn chat-mobile-close"
               onClick={() => setIsOpenMobile(false)}
               title="Close chat"
@@ -244,24 +302,12 @@ export default function ChatSidebar() {
             const isPending =
               isStreaming && isLast && m.role === 'assistant' && m.content === '';
             return (
-              <div key={m.id} className={`chat-row chat-row-${m.role}`}>
-                <div
-                  className={
-                    'chat-msg chat-msg-' + (m.error ? 'error' : m.role)
-                  }
-                >
-                  {isPending ? <span className="chat-typing">…</span> : m.content}
-                </div>
-                {m.error && (
-                  <button
-                    type="button"
-                    className="chat-retry"
-                    onClick={() => onRetry(m.id)}
-                  >
-                    Retry
-                  </button>
-                )}
-              </div>
+              <ChatMessageRow
+                key={m.id}
+                message={m}
+                isPending={isPending}
+                onRetry={onRetry}
+              />
             );
           })}
         </div>
@@ -272,7 +318,64 @@ export default function ChatSidebar() {
           </div>
         )}
 
-        <form className="chat-composer" onSubmit={onSubmit}>
+        <div className="chat-toolbar">
+          <div className="chat-toolbar-group">
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onStep}
+              disabled={submitDisabled}
+              title="Step"
+              aria-label="Step"
+            >
+              <StepIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onPlay}
+              disabled={submitDisabled}
+              title="Play"
+              aria-label="Play"
+            >
+              <PlayIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onPause}
+              disabled={
+                !(isStreaming && debugger_.mode === 'running' && !debugger_.pending)
+              }
+              title="Pause"
+              aria-label="Pause"
+            >
+              <PauseIcon size={16} />
+            </button>
+          </div>
+          {debugger_.pending ? (
+            <div className="chat-status-pill" role="status" aria-live="polite">
+              <span className="chat-status-dot" aria-hidden="true" />
+              Paused at {debugger_.pending.toolName}
+            </div>
+          ) : (
+            <Throbber />
+          )}
+          <div className="chat-toolbar-group">
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onNewChat}
+              title="New chat"
+              aria-label="New chat"
+              disabled={!hasMessages && !isStreaming}
+            >
+              <PlusIcon size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-composer">
           <textarea
             ref={taRef}
             value={input}
@@ -280,36 +383,14 @@ export default function ChatSidebar() {
               setInput(e.target.value);
               autoGrow();
             }}
-            onKeyDown={onKeyDown}
             placeholder={
               unconfigured ? 'Configure a provider in Settings…' : 'Message…'
             }
-            rows={1}
+            rows={3}
             disabled={unconfigured}
             aria-label="Chat message"
           />
-          {isStreaming ? (
-            <button
-              type="button"
-              className="btn btn-secondary chat-send"
-              onClick={onStop}
-              aria-label="Stop"
-              title="Stop"
-            >
-              <StopIcon size={14} />
-            </button>
-          ) : (
-            <button
-              type="submit"
-              className="btn btn-primary chat-send"
-              disabled={unconfigured || input.trim().length === 0}
-              aria-label="Send"
-              title="Send"
-            >
-              <SendIcon size={14} />
-            </button>
-          )}
-        </form>
+        </div>
       </aside>
 
       <button

@@ -7,6 +7,10 @@ export default defineConfig({
   vite: {
     optimizeDeps: {
       exclude: ['@duckdb/duckdb-wasm'],
+      // apache-arrow is only reached via the dynamic import of ./duckdb, so
+      // Vite's static scan misses it. Pre-bundle it explicitly so the dep URL
+      // is stable when the agent's tool wrappers eventually fire.
+      include: ['apache-arrow'],
     },
   },
 });

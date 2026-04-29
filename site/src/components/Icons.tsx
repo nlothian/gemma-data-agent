@@ -176,6 +176,59 @@ export function StopIcon({ size = 16, style }: IconProps) {
   );
 }
 
+export function PlayIcon({ size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={style}
+      aria-hidden="true"
+      fill="currentColor"
+      stroke="none"
+    >
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+export function PauseIcon({ size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={style}
+      aria-hidden="true"
+      fill="currentColor"
+      stroke="none"
+    >
+      <rect x="6" y="5" width="4" height="14" />
+      <rect x="14" y="5" width="4" height="14" />
+    </svg>
+  );
+}
+
+export function StepIcon({ size = 16, style }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      style={style}
+      aria-hidden="true"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="5 4 16 12 5 20 5 4" />
+      <line x1="19" y1="5" x2="19" y2="19" fill="none" />
+    </svg>
+  );
+}
+
 export function LoaderIcon({ size = 16, style }: IconProps) {
   return (
     <svg
