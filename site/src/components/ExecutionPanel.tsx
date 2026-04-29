@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import {
   subscribe,
   getSnapshot,
@@ -11,6 +11,7 @@ import CodeView from './CodeView';
 import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
 import SqlResultGrid from './SqlResultGrid';
+import { ChevronDownIcon } from './Icons';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
@@ -18,11 +19,14 @@ const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
 export default function ExecutionPanel() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const active = snap.activeTab;
+  const [codeFolded, setCodeFolded] = useState(false);
 
   const pythonSource =
     snap.python.source.length > 0 ? snap.python.source : PYTHON_PLACEHOLDER;
   const sqlSource =
     snap.sql.source.length > 0 ? snap.sql.source : SQL_PLACEHOLDER;
+
+  const toggleFold = () => setCodeFolded((v) => !v);
 
   return (
     <section className="exec-panel" aria-label="Execution panel">
@@ -54,12 +58,33 @@ export default function ExecutionPanel() {
           />
         ) : (
           <>
-            <div className="exec-editor">
-              {active === 'python' ? (
-                <CodeView code={pythonSource} language="python" />
-              ) : (
-                <CodeView code={sqlSource} language="sql" />
-              )}
+            <div className="exec-editor-section" data-folded={codeFolded}>
+              <div className="exec-editor-bar">
+                <button
+                  type="button"
+                  className="exec-fold-btn"
+                  onClick={toggleFold}
+                  aria-expanded={!codeFolded}
+                  aria-label={codeFolded ? 'Unfold code' : 'Fold code'}
+                  title={codeFolded ? 'Unfold code' : 'Fold code'}
+                >
+                  <ChevronDownIcon
+                    size={14}
+                    style={{
+                      transform: codeFolded ? 'rotate(-90deg)' : 'rotate(0deg)',
+                      transition: 'transform 120ms ease',
+                    }}
+                  />
+                  <span>Code</span>
+                </button>
+              </div>
+              <div className="exec-editor">
+                {active === 'python' ? (
+                  <CodeView code={pythonSource} language="python" />
+                ) : (
+                  <CodeView code={sqlSource} language="sql" />
+                )}
+              </div>
             </div>
             {active === 'python' ? (
               <PythonOutput
@@ -69,6 +94,8 @@ export default function ExecutionPanel() {
                 result={snap.python.result}
                 status={snap.python.status}
                 images={snap.python.images}
+                codeFolded={codeFolded}
+                onToggleFold={toggleFold}
               />
             ) : (
               <SqlResultGrid

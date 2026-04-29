@@ -18,8 +18,19 @@ import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import type { ChatMessage } from '../types/chat';
-import { CloseIcon, PauseIcon, PlayIcon, PlusIcon, StepIcon } from './Icons';
+import {
+  ChevronRightIcon,
+  CloseIcon,
+  PauseIcon,
+  PlayIcon,
+  PlusIcon,
+  StepIcon,
+} from './Icons';
 import Throbber from './Throbber';
+import {
+  parseAssistantContent,
+  type AssistantSegment,
+} from '../lib/parseAssistantContent';
 
 const MARKDOWN_PLUGINS = [remarkGfm];
 
@@ -35,17 +46,83 @@ interface ChatMessageRowProps {
   onRetry: (id: string) => void;
 }
 
+function CollapsibleToolCall({
+  name,
+  args,
+  result,
+}: {
+  name: string;
+  args: string;
+  result: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-tool-call">
+      <button
+        type="button"
+        className="chat-tool-summary"
+        data-expanded={expanded ? 'true' : 'false'}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <ChevronRightIcon size={14} />
+        <span className="chat-tool-name">{name}</span>
+      </button>
+      {expanded && (
+        <div className="chat-tool-body">
+          <pre>
+            <code>{args || '{}'}</code>
+          </pre>
+          {result === null ? (
+            <div className="chat-tool-running">running…</div>
+          ) : (
+            <pre>
+              <code>{result}</code>
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantBody({ content }: { content: string }) {
+  const segments = useMemo<AssistantSegment[]>(
+    () => parseAssistantContent(content),
+    [content],
+  );
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.kind === 'text') {
+          if (!seg.text.trim()) return null;
+          return (
+            <ReactMarkdown
+              key={i}
+              remarkPlugins={MARKDOWN_PLUGINS}
+              components={MARKDOWN_COMPONENTS}
+            >
+              {seg.text}
+            </ReactMarkdown>
+          );
+        }
+        return (
+          <CollapsibleToolCall
+            key={i}
+            name={seg.name}
+            args={seg.args}
+            result={seg.result}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function renderMessageBody(m: ChatMessage, isPending: boolean) {
   if (isPending) return <span className="chat-typing">…</span>;
   if (m.role === 'assistant' && !m.error) {
-    return (
-      <ReactMarkdown
-        remarkPlugins={MARKDOWN_PLUGINS}
-        components={MARKDOWN_COMPONENTS}
-      >
-        {m.content}
-      </ReactMarkdown>
-    );
+    return <AssistantBody content={m.content} />;
   }
   return m.content;
 }

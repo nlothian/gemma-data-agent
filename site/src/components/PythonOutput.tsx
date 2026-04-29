@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MaximizeIcon, MinimizeIcon } from './Icons';
 
 interface PythonOutputProps {
   stdout: string;
@@ -7,6 +8,8 @@ interface PythonOutputProps {
   result?: string;
   status: 'idle' | 'pending' | 'running' | 'done' | 'error' | 'aborted';
   images: string[];
+  codeFolded?: boolean;
+  onToggleFold?: () => void;
 }
 
 type SubTab = 'output' | 'plot';
@@ -18,6 +21,8 @@ export default function PythonOutput({
   result,
   status,
   images,
+  codeFolded = false,
+  onToggleFold,
 }: PythonOutputProps) {
   const empty = !stdout && !stderr && !errorMessage;
   const hasImages = images.length > 0;
@@ -51,6 +56,19 @@ export default function PythonOutput({
             active={sub === 'plot'}
             onClick={() => setSub('plot')}
           />
+          {sub === 'plot' && onToggleFold && (
+            <button
+              type="button"
+              className="exec-expand-btn"
+              onClick={onToggleFold}
+              aria-pressed={codeFolded}
+              aria-label={codeFolded ? 'Restore code panel' : 'Expand plot'}
+              title={codeFolded ? 'Restore code panel' : 'Expand plot'}
+            >
+              {codeFolded ? <MinimizeIcon size={14} /> : <MaximizeIcon size={14} />}
+              <span>{codeFolded ? 'Restore' : 'Expand'}</span>
+            </button>
+          )}
         </div>
       )}
 
