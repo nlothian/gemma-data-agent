@@ -5,6 +5,8 @@ title: Lumen
 
 import ExecutionPanel from "../components/ExecutionPanel.tsx";
 import ExplainerPanel from "../components/ExplainerPanel.tsx";
+import PauseCoachmark from "../components/PauseCoachmark.tsx";
 
 <ExecutionPanel client:load />
 <ExplainerPanel client:load />
+<PauseCoachmark client:only="react" />

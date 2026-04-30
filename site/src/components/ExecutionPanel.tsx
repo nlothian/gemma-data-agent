@@ -33,9 +33,11 @@ export default function ExecutionPanel() {
 
   useEffect(() => {
     setEditedPython(null);
+    if (snap.python.source) setCodeFolded(false);
   }, [snap.python.source]);
   useEffect(() => {
     setEditedSql(null);
+    if (snap.sql.source) setCodeFolded(false);
   }, [snap.sql.source]);
 
   const pythonValue = editedPython ?? snap.python.source;
