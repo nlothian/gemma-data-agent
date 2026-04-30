@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useSyncExternalStore } from 'react';
+import { useEffect, useReducer, useState, useSyncExternalStore } from 'react';
 import {
   subscribe,
   getSnapshot,
@@ -12,11 +12,14 @@ import {
   type ExplainerState,
   type SummaryState,
 } from '../lib/explainerStateMachine';
+import { InfoIcon } from './Icons';
+import CompactionPreviewOverlay from './CompactionPreviewOverlay';
 
 export default function ExplainerPanel() {
   const debug = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const { config } = useLLMConfig();
   const [state, dispatch] = useReducer(reduce, initialState);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // Translate the debugger snapshot into state-machine events.
   useEffect(() => {
@@ -28,6 +31,10 @@ export default function ExplainerPanel() {
       dispatch({ type: 'PENDING', call: debug.pending });
     }
   }, [debug.mode, debug.pending]);
+
+  useEffect(() => {
+    if (state.kind !== 'paused-compaction') setPreviewOpen(false);
+  }, [state.kind]);
 
   // Kick off summarisation whenever the python/sql code identity changes.
   // We deliberately do NOT depend on `state` itself — dispatching
@@ -62,18 +69,32 @@ export default function ExplainerPanel() {
   }, [language, code, endpoint]);
 
   return (
-    <section className="explainer-panel" aria-label="Explainer">
-      <div className="explainer-header">
-        <span className="explainer-title">Explainer</span>
-      </div>
-      <div className="explainer-body">
-        <ExplainerBody state={state} />
-      </div>
-    </section>
+    <>
+      <section className="explainer-panel" aria-label="Explainer">
+        <div className="explainer-header">
+          <span className="explainer-title">Explainer</span>
+        </div>
+        <div className="explainer-body">
+          <ExplainerBody state={state} onShowCompaction={() => setPreviewOpen(true)} />
+        </div>
+      </section>
+      {previewOpen && state.kind === 'paused-compaction' && (
+        <CompactionPreviewOverlay
+          messages={state.messages}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
-function ExplainerBody({ state }: { state: ExplainerState }) {
+function ExplainerBody({
+  state,
+  onShowCompaction,
+}: {
+  state: ExplainerState;
+  onShowCompaction: () => void;
+}) {
   if (state.kind === 'empty') return null;
 
   if (state.kind === 'running') {
@@ -94,6 +115,22 @@ function ExplainerBody({ state }: { state: ExplainerState }) {
       <>
         <p>The model wants to run SQL with the code above. Press the step button to continue.</p>
         <SummaryView summary={state.summary} />
+      </>
+    );
+  }
+
+  if (state.kind === 'paused-compaction') {
+    return (
+      <>
+        <p>Compaction is required because context is at 90%. Press Step or Play to run it.</p>
+        <button
+          type="button"
+          className="explainer-show-me"
+          onClick={onShowCompaction}
+        >
+          <InfoIcon size={14} />
+          <span>Show me</span>
+        </button>
       </>
     );
   }

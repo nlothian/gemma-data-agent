@@ -521,10 +521,52 @@ body.chat-resizing {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.chat-tokens.chat-pressure-warn {
+  color: var(--warning-500);
+}
+.chat-tokens.chat-pressure-danger {
+  color: var(--danger-500);
+}
+.chat-pressure-hint {
+  align-self: flex-end;
+  /* Negative bottom margin pulls the pill down across the composer's top
+     padding so its bottom edge sits flush with the textarea's top border.
+     Right margin = composer's right padding (s-3) + textarea border-radius
+     (r-8) so the pill's right edge stops where the textarea's top edge
+     stops being straight, instead of overhanging the rounded corner. */
+  margin: 0 calc(var(--s-3) + var(--r-8)) calc(-1 * var(--s-3));
+  padding: 2px var(--s-2);
+  border-radius: var(--r-4) var(--r-4) 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  position: relative;
+  z-index: 1;
+}
+.chat-pressure-hint--warn {
+  background: rgba(244, 168, 0, 0.18);
+  border-color: rgba(244, 168, 0, 0.45);
+  color: #8a5d00;
+}
+.chat-pressure-hint--danger {
+  background: rgba(229, 57, 53, 0.16);
+  border-color: rgba(229, 57, 53, 0.45);
+  color: #8c1e1b;
+}
+.chat-iconbtn.chat-pressure-warn:not(:disabled) {
+  color: var(--warning-500);
+}
+.chat-iconbtn.chat-pressure-danger:not(:disabled) {
+  color: var(--danger-500);
+}
 .pressure-indicator {
   display: flex;
   align-items: center;
   gap: var(--s-2);
+  margin-right: var(--s-2);
 }
 .pressure-sparkline-wrap {
   display: inline-flex;
@@ -888,6 +930,45 @@ body.chat-resizing {
 }
 .chat-thinking-block:first-child { margin-top: 0; }
 .chat-thinking-block:last-child { margin-bottom: 0; }
+
+.chat-compacted {
+  margin: var(--s-2) 0;
+  border: 1px dashed var(--silver);
+  border-radius: var(--r-4);
+  background: rgba(0, 0, 0, 0.03);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  /* When the --attention modifier is removed after the highlight window,
+     the background and border colors transition back to default over 1.5s. */
+  transition: background-color 1500ms ease-out, border-color 1500ms ease-out;
+}
+.chat-compacted .chat-tool-summary {
+  color: var(--steel);
+}
+.chat-compacted .chat-tool-name {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.chat-compacted--attention {
+  background-color: rgba(244, 168, 0, 0.28);
+  border-color: var(--warning-500);
+  /* No transition while the attention class is present — let the yellow
+     snap in immediately, then a short vibration draws the eye. */
+  transition: none;
+  animation: chat-compacted-shake 80ms linear 0s 12;
+}
+@keyframes chat-compacted-shake {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(-1px, 0.5px); }
+  50%      { transform: translate(1px, -0.5px); }
+  75%      { transform: translate(-0.5px, 1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-compacted--attention {
+    animation: none;
+  }
+}
 .chat-thinking-pulse {
   width: 6px;
   height: 6px;
@@ -1363,6 +1444,126 @@ body.exec-resizing {
   border-color: var(--mist);
   background: var(--snow);
   font-style: normal;
+}
+
+.explainer-show-me {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+  background: var(--white);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-4);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.explainer-show-me:hover {
+  background: var(--snow);
+  border-color: var(--silver);
+}
+
+.compaction-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgba(15, 20, 25, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  animation: compactionPreviewIn 140ms ease-out;
+}
+
+@keyframes compactionPreviewIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.compaction-preview-card {
+  position: relative;
+  width: min(720px, 100%);
+  max-height: calc(100vh - var(--s-6));
+  overflow: auto;
+  background: var(--white);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-12);
+  box-shadow: var(--el-3, var(--el-2));
+  padding: var(--s-4);
+  font-family: var(--font-sans);
+  color: var(--graphite);
+}
+
+.compaction-preview-close {
+  position: absolute;
+  top: var(--s-2);
+  right: var(--s-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--s-1);
+  border-radius: var(--r-4);
+  color: var(--steel);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compaction-preview-close:hover {
+  background: var(--snow);
+  color: var(--ink);
+}
+
+.compaction-preview-title {
+  margin: 0 0 var(--s-3) 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.compaction-preview-section {
+  margin-bottom: var(--s-3);
+}
+
+.compaction-preview-section:last-child {
+  margin-bottom: 0;
+}
+
+.compaction-preview-section h3 {
+  margin: 0 0 var(--s-2) 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.compaction-preview-pre {
+  margin: 0;
+  padding: var(--s-2);
+  background: var(--snow);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-4);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.compaction-preview-fold {
+  width: 100%;
+  margin-bottom: var(--s-2);
 }
 
 .exec-editor .cm-editor {

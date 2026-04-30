@@ -19,6 +19,7 @@ function isChatHistoryShape(value: unknown): value is ChatHistory {
       (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') &&
       typeof msg.content === 'string' &&
       (msg.historyContent === undefined || typeof msg.historyContent === 'string') &&
+      (msg.kind === undefined || msg.kind === 'compaction') &&
       typeof msg.createdAt === 'number'
     );
   });

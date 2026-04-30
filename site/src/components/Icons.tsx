@@ -38,6 +38,7 @@ export const SendIcon = (p: IconProps) => <MaterialIcon name="send" {...p} />;
 export const StopIcon = (p: IconProps) => <MaterialIcon name="stop" filled {...p} />;
 export const PlayIcon = (p: IconProps) => <MaterialIcon name="play_arrow" filled {...p} />;
 export const PauseIcon = (p: IconProps) => <MaterialIcon name="pause" filled {...p} />;
+export const CompressIcon = (p: IconProps) => <MaterialIcon name="compress" filled {...p} />;
 export const StepIcon = (p: IconProps) => <MaterialIcon name="skip_next" filled {...p} />;
 export const ChevronRightIcon = (p: IconProps) => <MaterialIcon name="chevron_right" {...p} />;
 export const ChevronDownIcon = (p: IconProps) => <MaterialIcon name="expand_more" {...p} />;
@@ -45,3 +46,4 @@ export const MaximizeIcon = (p: IconProps) => <MaterialIcon name="open_in_full" 
 export const MinimizeIcon = (p: IconProps) => <MaterialIcon name="close_fullscreen" {...p} />;
 export const LoaderIcon = (p: IconProps) => <MaterialIcon name="progress_activity" {...p} />;
 export const ChatAddOnIcon = (p: IconProps) => <MaterialIcon name="chat_add_on" {...p} />;
+export const InfoIcon = (p: IconProps) => <MaterialIcon name="info" {...p} />;

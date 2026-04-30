@@ -7,8 +7,14 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 
 import { CloseIcon } from './Icons';
 import { createPortal } from 'react-dom';
+import { COMPACTION_TOOL_NAME } from '../lib/autoCompaction';
 
-const EXPLAINABLE_TOOLS = new Set(['RunPython', 'RunSQL', 'LoadData']);
+const EXPLAINABLE_TOOLS = new Set([
+  'RunPython',
+  'RunSQL',
+  'LoadData',
+  COMPACTION_TOOL_NAME,
+]);
 const PADDING = 8;
 const CORNER_RADIUS = 12;
 const FADE_IN_MS = 180;
@@ -129,11 +135,12 @@ export default function PauseCoachmark() {
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(recompute);
+      const codeSel = codeAreaSelector(toolName);
       const targets = [
         document.querySelector('.explainer-panel'),
         document.querySelector('button[aria-label="Step"]'),
         document.querySelector('button[aria-label="Play"]'),
-        document.querySelector(codeAreaSelector(toolName) ?? ''),
+        codeSel ? document.querySelector(codeSel) : null,
       ].filter((el): el is Element => el !== null);
       for (const t of targets) ro.observe(t);
     }

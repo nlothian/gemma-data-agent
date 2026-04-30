@@ -72,6 +72,12 @@ export interface DataPaneState {
 
 export interface LlmActivityState {
   active: boolean;
+  /**
+   * True while an isolated, off-thread compaction call is in flight (see
+   * `compactConversation.ts`). Surfaced by the Throbber as "Compacting" and
+   * takes priority over the regular "Thinking" label.
+   */
+  compacting: boolean;
   modelDownload: { label: string; pct: number; fromCache: boolean } | null;
 }
 
@@ -112,6 +118,7 @@ const INITIAL_DATA: DataPaneState = {
 
 const INITIAL_LLM: LlmActivityState = {
   active: false,
+  compacting: false,
   modelDownload: null,
 };
 
@@ -394,6 +401,11 @@ export function setAborted(kind: PaneKind): void {
 export function setLlmActive(active: boolean): void {
   if (snapshot.llm.active === active) return;
   setSnapshot({ ...snapshot, llm: { ...snapshot.llm, active } });
+}
+
+export function setLlmCompacting(compacting: boolean): void {
+  if (snapshot.llm.compacting === compacting) return;
+  setSnapshot({ ...snapshot, llm: { ...snapshot.llm, compacting } });
 }
 
 export function setLocalLlmDownloadProgress(

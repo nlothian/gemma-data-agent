@@ -9,6 +9,8 @@
 
 import type { PendingToolCall } from './toolDebugger';
 import type { LLMConfig } from '../types/llm';
+import type { ChatMessage } from '../types/chat';
+import { COMPACTION_TOOL_NAME } from './autoCompaction';
 import { summariseCode, type SummaryLanguage } from './summariseCode';
 
 export type SummaryState =
@@ -22,7 +24,8 @@ export type ExplainerState =
   | { kind: 'running' }
   | { kind: 'paused-python'; code: string; summary: SummaryState }
   | { kind: 'paused-sql'; sql: string; summary: SummaryState }
-  | { kind: 'paused-load'; url: string };
+  | { kind: 'paused-load'; url: string }
+  | { kind: 'paused-compaction'; messages: ChatMessage[] };
 
 export type ExplainerEvent =
   | { type: 'MODE_RUNNING' }
@@ -54,6 +57,14 @@ function readString(input: unknown, field: string): string | null {
   return null;
 }
 
+function readMessages(input: unknown): ChatMessage[] {
+  if (input && typeof input === 'object' && 'messages' in input) {
+    const v = (input as Record<string, unknown>).messages;
+    if (Array.isArray(v)) return v as ChatMessage[];
+  }
+  return [];
+}
+
 export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerState {
   switch (event.type) {
     case 'RESET':
@@ -82,6 +93,9 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
         const url = readString(input, 'url') ?? '';
         if (state.kind === 'paused-load' && state.url === url) return state;
         return { kind: 'paused-load', url };
+      }
+      if (toolName === COMPACTION_TOOL_NAME) {
+        return { kind: 'paused-compaction', messages: readMessages(input) };
       }
       return { kind: 'empty' };
     }

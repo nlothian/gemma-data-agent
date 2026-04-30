@@ -15,6 +15,13 @@ export interface ChatMessage {
    * (where `content` is already the right shape).
    */
   historyContent?: string;
+  /**
+   * When set, this row replaces a span of older messages in the UI as a
+   * collapsible "Compacted" block. `content` holds the summary text. The
+   * marker is filtered out of `messages[]` at request time and its summary
+   * is appended to the system prompt instead — see `sendPrompt`.
+   */
+  kind?: 'compaction';
   createdAt: number;
   error?: boolean;
 }

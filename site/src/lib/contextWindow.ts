@@ -15,3 +15,18 @@ export function formatTokenCount(n: number): string {
   }
   return String(n);
 }
+
+export type PressureLevel = 'ok' | 'warn' | 'danger';
+
+export function getPressureLevel(used: number, max: number): PressureLevel {
+  const pct = max > 0 ? used / max : 0;
+  if (pct >= 0.75) return 'danger';
+  if (pct >= 0.5) return 'warn';
+  return 'ok';
+}
+
+export const COMPACTION_THRESHOLD = 0.9;
+
+export function shouldAutoCompact(used: number, max: number): boolean {
+  return max > 0 && used / max >= COMPACTION_THRESHOLD;
+}

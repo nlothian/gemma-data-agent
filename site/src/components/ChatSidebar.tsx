@@ -24,13 +24,30 @@ import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
 import { restoreRegistryFromIndexedDB, clearAllInputs } from '../lib/duckdb';
-import { getContextWindowForEndpoint, formatTokenCount } from '../lib/contextWindow';
+import {
+  getContextWindowForEndpoint,
+  formatTokenCount,
+  getPressureLevel,
+  type PressureLevel,
+} from '../lib/contextWindow';
+import {
+  buildCompactionContext,
+  buildCompactionSlice,
+  COMPACTION_TOOL_NAME,
+  mapMessagesForLLM,
+  maybeAutoCompact,
+  runCompaction,
+} from '../lib/autoCompaction';
+import { renderConversationForGemma } from '../lib/localLlm/toolPrompt';
+import { sizeInTokens } from '../lib/localLlm/llmService';
+import type { TokenUsage } from '../lib/tokenUsageStore';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
   ChatAddOnIcon,
   ChevronRightIcon,
   CloseIcon,
+  CompressIcon,
   PauseIcon,
   PlayIcon,
   StepIcon,
@@ -147,6 +164,39 @@ function CollapsibleToolCall({
   );
 }
 
+function CollapsibleCompacted({
+  summary,
+  highlight,
+}: {
+  summary: string;
+  highlight: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div
+      className={'chat-compacted' + (highlight ? ' chat-compacted--attention' : '')}
+    >
+      <button
+        type="button"
+        className="chat-tool-summary"
+        data-expanded={expanded ? 'true' : 'false'}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <ChevronRightIcon size={14} />
+        <span className="chat-tool-name">Compacted</span>
+      </button>
+      {expanded && (
+        <div className="chat-tool-body">
+          <pre>
+            <code>{summary}</code>
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssistantBody({ content }: { content: string }) {
   const segments = useMemo<AssistantSegment[]>(
     () => parseAssistantContent(content),
@@ -231,6 +281,9 @@ export default function ChatSidebar() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOpenMobile, setIsOpenMobile] = useState(false);
+  const [highlightCompactedId, setHighlightCompactedId] = useState<string | null>(
+    null,
+  );
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useChatSidebarWidth();
   const debugger_ = useSyncExternalStore(
     toolDebugger.subscribe,
@@ -253,6 +306,12 @@ export default function ChatSidebar() {
   const listRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const wasAtBottomRef = useRef(true);
+  // Mirrors history.messages so that `onDone`'s closure sees the just-streamed
+  // assistant turn rather than the stale snapshot captured at sendPrompt time.
+  const historyRef = useRef(history.messages);
+  useEffect(() => {
+    historyRef.current = history.messages;
+  }, [history.messages]);
 
   const unconfigured = useMemo(() => {
     if (!cfgReady) return false;
@@ -354,6 +413,36 @@ export default function ChatSidebar() {
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px';
   }, []);
 
+  const scrollToTop = useCallback(() => {
+    wasAtBottomRef.current = false;
+    requestAnimationFrame(() => {
+      const el = listRef.current;
+      if (el) el.scrollTop = 0;
+    });
+  }, []);
+
+  // Compute the post-compaction prompt size for the local-Gemma path so the
+  // gauge reflects the surviving context immediately instead of resetting to
+  // zero. Cloud endpoints have no client-side tokenizer — return null to fall
+  // back to the next response's usage event.
+  const estimatePostCompactionUsage = useCallback(
+    (msgs: ChatMessage[]): TokenUsage | null => {
+      if (!isLocalGemmaEndpoint(config.activeEndpoint)) return null;
+      const thinkingEnabled =
+        config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false;
+      const prompt = renderConversationForGemma(
+        AGENT_SYSTEM_PROMPT + buildCompactionContext(msgs),
+        mapMessagesForLLM(msgs),
+        AGENT_TOOLS,
+        thinkingEnabled,
+      );
+      const tokens = sizeInTokens(prompt);
+      if (tokens === null) return null;
+      return { input: tokens, output: 0 };
+    },
+    [config],
+  );
+
   const sendPrompt = useCallback(
     async (userText: string) => {
       const trimmed = userText.trim();
@@ -377,23 +466,19 @@ export default function ChatSidebar() {
         createdAt: Date.now(),
       };
 
-      // Build the request payload from prior history + new user turn.
       // For assistant turns prefer `historyContent` (model-replay format with
       // proper `<|tool_call>` tokens) over `content` (UI-format text with
       // `→/←` markers). Without this swap, local-Gemma sees its own past
       // tool calls as plain text and starts imitating them — producing
       // hallucinated tool calls that never execute.
-      const priorTurns: StreamChatMessage[] = history.messages
-        .filter((m) => !m.error && m.role !== 'system')
-        .map((m) => ({
-          role: m.role,
-          content:
-            m.role === 'assistant' && m.historyContent !== undefined
-              ? m.historyContent
-              : m.content,
-        }));
+      // Compaction markers stay in the UI history (rendered as a foldable
+      // "Compacted" row) but get lifted out of the conversation: their
+      // summary is appended to the system prompt as instructional context,
+      // not replayed as a user/assistant turn.
+      const compactionContext = buildCompactionContext(history.messages);
+      const priorTurns = mapMessagesForLLM(history.messages);
       const requestMessages: StreamChatMessage[] = [
-        { role: 'system', content: AGENT_SYSTEM_PROMPT },
+        { role: 'system', content: AGENT_SYSTEM_PROMPT + compactionContext },
         ...priorTurns,
         { role: 'user', content: trimmed },
       ];
@@ -420,6 +505,21 @@ export default function ChatSidebar() {
           setIsStreaming(false);
           executionPanelStore.setLlmActive(false);
           abortRef.current = null;
+          // Defer to the next tick so React has committed the final
+          // history updates from the streaming callbacks; otherwise
+          // historyRef.current can lag the just-streamed assistant turn.
+          setTimeout(() => {
+            void maybeAutoCompact({
+              config,
+              messages: historyRef.current,
+              replaceMessages,
+              flush,
+              setHighlightId: setHighlightCompactedId,
+              scrollToTop,
+              signal: controller.signal,
+              estimatePostCompactionUsage,
+            });
+          }, 0);
         },
         onError: (err) => {
           setLastAssistantContent(err.message || 'Request failed.', true);
@@ -434,9 +534,12 @@ export default function ChatSidebar() {
       appendLastAssistantHistory,
       appendMessage,
       config,
+      estimatePostCompactionUsage,
       flush,
       history.messages,
       isStreaming,
+      replaceMessages,
+      scrollToTop,
       setLastAssistantContent,
       unconfigured,
       updateLastAssistant,
@@ -466,9 +569,39 @@ export default function ChatSidebar() {
     toolDebugger.pause();
   }, []);
 
+  const compacting = panelSnap.llm.compacting;
+
+  const onCompact = useCallback(async () => {
+    if (isStreaming || compacting || unconfigured) return;
+    const slice = buildCompactionSlice(history.messages);
+    if (!slice) return;
+    await runCompaction({
+      config,
+      toCompact: slice.toCompact,
+      recent: slice.recent,
+      replaceMessages,
+      flush,
+      setHighlightId: setHighlightCompactedId,
+      scrollToTop,
+      estimatePostCompactionUsage,
+    });
+  }, [
+    compacting,
+    config,
+    estimatePostCompactionUsage,
+    flush,
+    history.messages,
+    isStreaming,
+    replaceMessages,
+    scrollToTop,
+    unconfigured,
+  ]);
+
+  const compactionPending = debugger_.pending?.toolName === COMPACTION_TOOL_NAME;
   const submitDisabled =
     unconfigured ||
     restoring ||
+    compactionPending ||
     (!debugger_.pending && (isStreaming || input.trim().length === 0));
 
   const onRetry = useCallback(
@@ -498,6 +631,19 @@ export default function ChatSidebar() {
 
   const messages = history.messages;
   const hasMessages = messages.length > 0;
+
+  const pressureLevel: PressureLevel = useMemo(() => {
+    if (!config.activeEndpoint) return 'ok';
+    const used = tokenUsage ? tokenUsage.input + tokenUsage.output : 0;
+    return getPressureLevel(used, getContextWindowForEndpoint(config.activeEndpoint));
+  }, [config.activeEndpoint, tokenUsage]);
+  const pressureSuffix =
+    pressureLevel === 'ok' ? '' : ' chat-pressure-' + pressureLevel;
+  const compactDisabled =
+    isStreaming ||
+    compacting ||
+    unconfigured ||
+    messages.filter((m) => m.role === 'user' && m.kind !== 'compaction').length < 2;
 
   return (
     <>
@@ -544,7 +690,7 @@ export default function ChatSidebar() {
           <div className="chat-header-actions">
             <PressureIndicator />
             {config.activeEndpoint && config.models[config.activeEndpoint] && (
-              <span className="chat-tokens">
+              <span className={'chat-tokens' + pressureSuffix}>
                 {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}
                 {' / '}
                 {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
@@ -579,6 +725,15 @@ export default function ChatSidebar() {
             </div>
           )}
           {messages.map((m, i) => {
+            if (m.kind === 'compaction') {
+              return (
+                <CollapsibleCompacted
+                  key={m.id}
+                  summary={m.content}
+                  highlight={m.id === highlightCompactedId}
+                />
+              );
+            }
             const isLast = i === messages.length - 1;
             const isPending =
               isStreaming && isLast && m.role === 'assistant' && m.content === '';
@@ -640,6 +795,16 @@ export default function ChatSidebar() {
             >
               <PauseIcon size={16} />
             </button>
+            <button
+              type="button"
+              className={'chat-iconbtn' + pressureSuffix}
+              onClick={() => void onCompact()}
+              disabled={compactDisabled}
+              title="Compact conversation"
+              aria-label="Compact conversation"
+            >
+              <CompressIcon size={16} />
+            </button>
           </div>
           {debugger_.pending ? (
             <div className="chat-status-pill" role="status" aria-live="polite">
@@ -650,6 +815,18 @@ export default function ChatSidebar() {
             <Throbber />
           )}
         </div>
+
+        {pressureLevel !== 'ok' && (
+          <div
+            className={'chat-pressure-hint chat-pressure-hint--' + pressureLevel}
+            role="status"
+            aria-live="polite"
+          >
+            {pressureLevel === 'danger'
+              ? 'Degraded performance. Compaction is necessary.'
+              : 'Compaction is recommended.'}
+          </div>
+        )}
 
         <div className="chat-composer">
           <textarea

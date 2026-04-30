@@ -8,6 +8,29 @@ const RESULT_MARKER = '← ';
 const THINKING_OPEN = '<|channel>thought\n';
 const THINKING_CLOSE = '<channel|>';
 
+/**
+ * Remove every `<|channel>thought ... <channel|>` block from an assistant
+ * message body. An unterminated trailing block is dropped from the open
+ * marker to the end. Used by compaction so the summarisation call doesn't
+ * pay for chain-of-thought tokens.
+ */
+export function stripThinking(content: string): string {
+  let out = '';
+  let cursor = 0;
+  while (cursor < content.length) {
+    const open = content.indexOf(THINKING_OPEN, cursor);
+    if (open === -1) {
+      out += content.slice(cursor);
+      break;
+    }
+    out += content.slice(cursor, open);
+    const close = content.indexOf(THINKING_CLOSE, open + THINKING_OPEN.length);
+    if (close === -1) break;
+    cursor = close + THINKING_CLOSE.length;
+  }
+  return out;
+}
+
 export function parseAssistantContent(content: string): AssistantSegment[] {
   const segments: AssistantSegment[] = [];
   let cursor = 0;
