@@ -1406,6 +1406,8 @@ body.exec-resizing {
 }
 
 .exec-plot-list {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
@@ -1418,6 +1420,13 @@ body.exec-resizing {
   border: 1px solid var(--mist);
   border-radius: var(--r-8);
   background: var(--white);
+}
+
+.exec-plot-list img:only-child {
+  max-height: 100%;
+  width: auto;
+  object-fit: contain;
+  align-self: center;
 }
 
 .exec-output {
