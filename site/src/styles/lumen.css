@@ -1196,6 +1196,35 @@ body.exec-resizing {
   background: var(--mist);
 }
 
+.exec-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--mist);
+  padding: var(--s-1) var(--s-2);
+  color: var(--steel);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: var(--r-4, 4px);
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.exec-play-btn:not(:disabled):hover {
+  color: var(--ink);
+  background: var(--mist);
+  border-color: var(--steel);
+}
+
+.exec-play-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .exec-editor {
   flex: 1;
   min-height: 0;

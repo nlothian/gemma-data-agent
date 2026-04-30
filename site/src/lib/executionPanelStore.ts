@@ -14,6 +14,11 @@ import type {
   RunSQLResult,
 } from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
+import {
+  savePanelSnapshot,
+  loadPanelSnapshot,
+  clearPanelSnapshot,
+} from './registryPersistence';
 
 function isSandboxFileResult(
   res: LoadedTable | LoadedSandboxFileResult,
@@ -37,7 +42,17 @@ export interface PythonPaneState {
   stderr: string;
   result?: string;
   errorMessage?: string;
+  /**
+   * Object URLs for the rendered <img> tags. Tied to the page lifetime and
+   * regenerated from `imageBytes` on rehydrate.
+   */
   images: string[];
+  /**
+   * The original PNG bytes captured from matplotlib. Kept alongside `images`
+   * so the panel can be persisted to IndexedDB and reload-rehydrated; object
+   * URLs themselves don't survive a reload.
+   */
+  imageBytes: Uint8Array[];
 }
 
 export interface SqlPaneState {
@@ -66,6 +81,12 @@ export interface ExecutionPanelSnapshot {
   sql: SqlPaneState;
   data: DataPaneState;
   llm: LlmActivityState;
+  /**
+   * True while we're rehydrating panel + registry state from IndexedDB after
+   * a page reload. The Throbber surfaces this as "Reconstructing state" and
+   * the chat composer should refuse to send tool calls until it clears.
+   */
+  restoring: boolean;
 }
 
 const MAX_STREAM_BYTES = 200_000;
@@ -76,6 +97,7 @@ const INITIAL_PYTHON: PythonPaneState = {
   stdout: '',
   stderr: '',
   images: [],
+  imageBytes: [],
 };
 
 const INITIAL_SQL: SqlPaneState = {
@@ -99,6 +121,7 @@ const INITIAL_SNAPSHOT: ExecutionPanelSnapshot = {
   sql: INITIAL_SQL,
   data: INITIAL_DATA,
   llm: INITIAL_LLM,
+  restoring: false,
 };
 
 type Listener = () => void;
@@ -110,9 +133,45 @@ function notify(): void {
   for (const fn of listeners) fn();
 }
 
+const PERSIST_DEBOUNCE_MS = 500;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+interface PersistedPanelSnapshot {
+  activeTab: PaneKind;
+  python: Omit<PythonPaneState, 'images'>;
+  sql: SqlPaneState;
+  data: DataPaneState;
+}
+
+function buildPersisted(s: ExecutionPanelSnapshot): PersistedPanelSnapshot {
+  // Drop transient session state: live `images` (object URLs) are useless
+  // across reloads — `imageBytes` is the canonical form. `llm` is session-
+  // runtime (download progress, "thinking" flag) and shouldn't persist.
+  const { images: _imgs, ...persistedPython } = s.python;
+  return {
+    activeTab: s.activeTab,
+    python: persistedPython,
+    sql: s.sql,
+    data: s.data,
+  };
+}
+
+function schedulePersist(): void {
+  if (snapshot.restoring) return;
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const persisted = buildPersisted(snapshot);
+    void savePanelSnapshot(persisted).catch((err) => {
+      console.warn('panelPersistence: save failed:', err);
+    });
+  }, PERSIST_DEBOUNCE_MS);
+}
+
 function setSnapshot(next: ExecutionPanelSnapshot): void {
   snapshot = next;
   notify();
+  schedulePersist();
 }
 
 export function getSnapshot(): ExecutionPanelSnapshot {
@@ -147,6 +206,7 @@ export function setPending(kind: 'python' | 'sql', source: string): void {
         stdout: '',
         stderr: '',
         images: [],
+        imageBytes: [],
       },
     });
     return;
@@ -210,6 +270,7 @@ export function setPythonResult(res: RunPythonResult): void {
     return;
   }
   const imageUrls = imagesToObjectUrls(res.images);
+  const newImageBytes = res.images && res.images.length > 0 ? res.images : undefined;
   setSnapshot({
     ...snapshot,
     python: {
@@ -220,6 +281,7 @@ export function setPythonResult(res: RunPythonResult): void {
       result: stringifyResult(res.result),
       errorMessage: undefined,
       images: imageUrls.length > 0 ? imageUrls : snapshot.python.images,
+      imageBytes: newImageBytes ?? snapshot.python.imageBytes,
     },
   });
 }
@@ -350,9 +412,67 @@ export function setLocalLlmDownloadProgress(
   });
 }
 
+/**
+ * Reset the in-memory panel state but leave the persisted IndexedDB snapshot
+ * alone. Used by the React cleanup hook so that dev hot-reloads don't wipe a
+ * still-valid persisted snapshot.
+ */
 export function resetPanel(): void {
   revokePythonImages();
   setSnapshot(INITIAL_SNAPSHOT);
+}
+
+/**
+ * Reset the panel AND clear the persisted snapshot. Used by the "New chat"
+ * action — at that point the conversation history has been wiped, so the
+ * data state should go with it.
+ */
+export function clearPanelAndPersistence(): void {
+  revokePythonImages();
+  setSnapshot(INITIAL_SNAPSHOT);
+  void clearPanelSnapshot().catch((err) => {
+    console.warn('panelPersistence: clear failed:', err);
+  });
+}
+
+export function setRestoring(restoring: boolean): void {
+  if (snapshot.restoring === restoring) return;
+  // Bypass schedulePersist for the flag itself: it's session-only and
+  // shouldn't trigger a write.
+  snapshot = { ...snapshot, restoring };
+  notify();
+}
+
+/**
+ * Rehydrate the ExecutionPanel from IndexedDB on app startup. Stale `running`
+ * / `pending` statuses are normalized to `idle` (the actual job died with the
+ * old page), and image object URLs are recreated from the persisted PNG
+ * bytes.
+ */
+export async function restorePanelFromIndexedDB(): Promise<void> {
+  const persisted = await loadPanelSnapshot<PersistedPanelSnapshot>();
+  if (!persisted) return;
+  const normalize = (s: PaneStatus): PaneStatus =>
+    s === 'running' || s === 'pending' ? 'idle' : s;
+  const imageBytes = persisted.python.imageBytes ?? [];
+  const images = imagesToObjectUrls(imageBytes);
+  setSnapshot({
+    ...snapshot,
+    activeTab: persisted.activeTab,
+    python: {
+      ...persisted.python,
+      status: normalize(persisted.python.status),
+      images,
+      imageBytes,
+    },
+    sql: { ...persisted.sql, status: normalize(persisted.sql.status) },
+    data: {
+      ...persisted.data,
+      status: normalize(persisted.data.status),
+      pendingUrl: undefined,
+      pendingTable: undefined,
+    },
+  });
 }
 
 function capStream(s: string): string {

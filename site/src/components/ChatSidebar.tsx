@@ -23,6 +23,7 @@ import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
+import { restoreRegistryFromIndexedDB, clearAllInputs } from '../lib/duckdb';
 import { getContextWindowForEndpoint, formatTokenCount } from '../lib/contextWindow';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
@@ -41,6 +42,24 @@ import {
 } from '../lib/parseAssistantContent';
 
 const MARKDOWN_PLUGINS = [remarkGfm];
+
+let hydratePromise: Promise<void> | null = null;
+
+function hydrateOnce(): Promise<void> {
+  if (hydratePromise) return hydratePromise;
+  hydratePromise = (async () => {
+    executionPanelStore.setRestoring(true);
+    try {
+      await restoreRegistryFromIndexedDB();
+      await executionPanelStore.restorePanelFromIndexedDB();
+    } catch (err) {
+      console.warn('hydrateOnce: failed to rehydrate state:', err);
+    } finally {
+      executionPanelStore.setRestoring(false);
+    }
+  })();
+  return hydratePromise;
+}
 
 const MARKDOWN_COMPONENTS = {
   a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
@@ -201,6 +220,7 @@ export default function ChatSidebar() {
     history,
     appendMessage,
     updateLastAssistant,
+    appendLastAssistantHistory,
     setLastAssistantContent,
     replaceMessages,
     clear,
@@ -221,6 +241,12 @@ export default function ChatSidebar() {
     tokenUsageStore.getSnapshot,
     tokenUsageStore.getServerSnapshot,
   );
+  const panelSnap = useSyncExternalStore(
+    executionPanelStore.subscribe,
+    executionPanelStore.getSnapshot,
+    executionPanelStore.getServerSnapshot,
+  );
+  const restoring = panelSnap.restoring;
   const stepShaking = useAttentionShake(Boolean(debugger_.pending));
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -237,6 +263,7 @@ export default function ChatSidebar() {
   }, [cfgReady, config]);
 
   useEffect(() => {
+    void hydrateOnce();
     return () => {
       abortRef.current?.abort();
       toolDebugger.reset();
@@ -331,6 +358,10 @@ export default function ChatSidebar() {
       const trimmed = userText.trim();
       if (!trimmed || isStreaming) return;
       if (unconfigured) return;
+      // If a hydration is in flight (page reload), wait for it before
+      // letting the agent see the registry — otherwise its first ListInputs
+      // / RunSQL would race the rehydrate.
+      await hydrateOnce();
 
       const userMsg: ChatMessage = {
         id: generateId(),
@@ -346,9 +377,20 @@ export default function ChatSidebar() {
       };
 
       // Build the request payload from prior history + new user turn.
+      // For assistant turns prefer `historyContent` (model-replay format with
+      // proper `<|tool_call>` tokens) over `content` (UI-format text with
+      // `→/←` markers). Without this swap, local-Gemma sees its own past
+      // tool calls as plain text and starts imitating them — producing
+      // hallucinated tool calls that never execute.
       const priorTurns: StreamChatMessage[] = history.messages
         .filter((m) => !m.error && m.role !== 'system')
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => ({
+          role: m.role,
+          content:
+            m.role === 'assistant' && m.historyContent !== undefined
+              ? m.historyContent
+              : m.content,
+        }));
       const requestMessages: StreamChatMessage[] = [
         { role: 'system', content: AGENT_SYSTEM_PROMPT },
         ...priorTurns,
@@ -370,6 +412,7 @@ export default function ChatSidebar() {
         tools: AGENT_TOOLS,
         signal: controller.signal,
         onToken: (delta) => updateLastAssistant(delta),
+        onHistoryDelta: (delta) => appendLastAssistantHistory(delta),
         onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
         onDone: () => {
           flush();
@@ -387,6 +430,7 @@ export default function ChatSidebar() {
       });
     },
     [
+      appendLastAssistantHistory,
       appendMessage,
       config,
       flush,
@@ -423,6 +467,7 @@ export default function ChatSidebar() {
 
   const submitDisabled =
     unconfigured ||
+    restoring ||
     (!debugger_.pending && (isStreaming || input.trim().length === 0));
 
   const onRetry = useCallback(
@@ -442,9 +487,12 @@ export default function ChatSidebar() {
   const onNewChat = useCallback(() => {
     if (isStreaming) abortRef.current?.abort();
     toolDebugger.reset();
-    executionPanelStore.resetPanel();
+    executionPanelStore.clearPanelAndPersistence();
     tokenUsageStore.setTokenUsage(null);
     clear();
+    void clearAllInputs().catch((err) => {
+      console.warn('onNewChat: clearAllInputs failed:', err);
+    });
   }, [clear, isStreaming]);
 
   const messages = history.messages;

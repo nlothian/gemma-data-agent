@@ -5,6 +5,10 @@ import {
   tableToIPC,
   type RecordBatch,
 } from 'apache-arrow';
+import {
+  saveRegistryEntry,
+  deleteRegistryEntry,
+} from './registryPersistence';
 
 export const MAX_DISPLAY_ROWS = 1000;
 
@@ -66,6 +70,11 @@ export interface RegisterInputOptions {
   sourcePath?: string;
   schema?: { name: string; type: string }[];
   rowCount?: number;
+  /**
+   * When true, skip the IndexedDB write-through. Used during page-reload
+   * rehydration where the buffer is *already* the persisted source of truth.
+   */
+  skipPersist?: boolean;
 }
 
 export function registerInput(
@@ -73,17 +82,60 @@ export function registerInput(
   buffer: Uint8Array,
   opts: RegisterInputOptions,
 ): void {
-  inputRegistry.set(name, {
+  const { skipPersist, ...meta } = opts;
+  const entry: RegisteredInputEntry = {
     name,
     buffer,
     byteLength: buffer.byteLength,
     publishedAt: Date.now(),
-    ...opts,
-  });
+    ...meta,
+  };
+  inputRegistry.set(name, entry);
+  if (!skipPersist) {
+    const { buffer: _b, ...persistedMeta } = entry;
+    void saveRegistryEntry(name, buffer, persistedMeta).catch((err) => {
+      console.warn(`registryPersistence: failed to persist "${name}":`, err);
+    });
+  }
 }
 
 export function unregisterInput(name: string): void {
   inputRegistry.delete(name);
+  void deleteRegistryEntry(name).catch((err) => {
+    console.warn(`registryPersistence: failed to delete "${name}":`, err);
+  });
+}
+
+/**
+ * Drop every registered input + any DuckDB tables created from them, and
+ * clear the IndexedDB-persisted copy. Used by "New chat" so the next
+ * conversation starts with no stale data referenced.
+ */
+export async function clearAllInputs(): Promise<void> {
+  const names = new Set<string>();
+  for (const k of inputRegistry.keys()) names.add(k);
+  for (const k of loadedTables.keys()) names.add(k);
+  inputRegistry.clear();
+  loadedTables.clear();
+  if (names.size > 0) {
+    try {
+      const { conn } = await getDuckDB();
+      for (const name of names) {
+        if (!TABLE_NAME_RE.test(name)) continue;
+        try {
+          await conn.query(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
+        } catch (err) {
+          console.warn(`clearAllInputs: failed to drop "${name}":`, err);
+        }
+      }
+    } catch (err) {
+      console.warn('clearAllInputs: DuckDB unavailable:', err);
+    }
+  }
+  const { clearRegistry } = await import('./registryPersistence');
+  await clearRegistry().catch((err) => {
+    console.warn('clearAllInputs: IDB clear failed:', err);
+  });
 }
 
 export function getInputBuffer(name: string): Uint8Array | undefined {
@@ -101,6 +153,41 @@ export function listInputBuffers(): { name: string; buffer: Uint8Array }[] {
     name,
     buffer,
   }));
+}
+
+/**
+ * Rehydrate the input registry from IndexedDB after a page reload. Restores
+ * each persisted Arrow buffer back into both the in-memory registry (so the
+ * agent's `ListInputs` and `RunPython` see them) and DuckDB (so `RunSQL`
+ * queries against them succeed).
+ *
+ * Idempotent: if an entry is already in memory under the same name, it is
+ * overwritten with the persisted version.
+ */
+export async function restoreRegistryFromIndexedDB(): Promise<void> {
+  const { loadAllRegistryEntries } = await import('./registryPersistence');
+  const entries = await loadAllRegistryEntries();
+  for (const { buffer, meta } of entries) {
+    registerInput(meta.name, buffer, {
+      encoding: meta.encoding,
+      format: meta.format,
+      source: meta.source,
+      sourcePath: meta.sourcePath,
+      schema: meta.schema,
+      rowCount: meta.rowCount,
+      skipPersist: true,
+    });
+    if (meta.encoding === 'arrow-ipc') {
+      try {
+        await loadArrowIntoDuckDB(meta.name, buffer);
+      } catch (err) {
+        console.warn(
+          `restoreRegistryFromIndexedDB: failed to load "${meta.name}" into DuckDB:`,
+          err,
+        );
+      }
+    }
+  }
 }
 
 let instancePromise: Promise<DuckDBHandle> | null = null;

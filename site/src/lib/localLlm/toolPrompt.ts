@@ -86,6 +86,10 @@ export function formatToolCallToken(name: string, argsJson: string): string {
   return `${TOOL_CALL_OPEN}call:${name}{${bodyFromJson(argsJson)}}${TOOL_CALL_CLOSE}`;
 }
 
+export function formatToolResponseToken(name: string, resultJson: string): string {
+  return `${TOOL_RESPONSE_OPEN}response:${name}{${bodyFromJson(resultJson)}}${TOOL_RESPONSE_CLOSE}`;
+}
+
 // ---- tool declaration block (system turn) ---------------------------------
 
 interface JsonSchema {

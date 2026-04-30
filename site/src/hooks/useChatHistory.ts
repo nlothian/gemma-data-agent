@@ -18,6 +18,7 @@ function isChatHistoryShape(value: unknown): value is ChatHistory {
       typeof msg.id === 'string' &&
       (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system') &&
       typeof msg.content === 'string' &&
+      (msg.historyContent === undefined || typeof msg.historyContent === 'string') &&
       typeof msg.createdAt === 'number'
     );
   });
@@ -104,6 +105,7 @@ export interface UseChatHistoryResult {
   ready: boolean;
   appendMessage: (message: ChatMessage) => void;
   updateLastAssistant: (delta: string) => void;
+  appendLastAssistantHistory: (delta: string) => void;
   setLastAssistantContent: (content: string, error?: boolean) => void;
   replaceMessages: (messages: ChatMessage[]) => void;
   clear: () => void;
@@ -125,6 +127,23 @@ export function useChatHistory(): UseChatHistoryResult {
         const last = prev.messages[prev.messages.length - 1];
         if (last.role !== 'assistant') return prev;
         const nextLast: ChatMessage = { ...last, content: last.content + delta };
+        return { messages: [...prev.messages.slice(0, -1), nextLast] };
+      },
+      { persist: false },
+    );
+  }, []);
+
+  const appendLastAssistantHistory = useCallback((delta: string): void => {
+    if (!delta) return;
+    update(
+      (prev) => {
+        if (prev.messages.length === 0) return prev;
+        const last = prev.messages[prev.messages.length - 1];
+        if (last.role !== 'assistant') return prev;
+        const nextLast: ChatMessage = {
+          ...last,
+          historyContent: (last.historyContent ?? '') + delta,
+        };
         return { messages: [...prev.messages.slice(0, -1), nextLast] };
       },
       { persist: false },
@@ -158,6 +177,7 @@ export function useChatHistory(): UseChatHistoryResult {
     ready: hydrated,
     appendMessage,
     updateLastAssistant,
+    appendLastAssistantHistory,
     setLastAssistantContent,
     replaceMessages,
     clear,

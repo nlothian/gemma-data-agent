@@ -4,6 +4,7 @@ import { DEFAULT_LOCAL_GEMMA_ID, getLocalGemmaModel, type LocalGemmaId } from '.
 import { ensureLoaded, generate, cancel as cancelGenerate, sizeInTokens } from './llmService';
 import {
   formatToolCallToken,
+  formatToolResponseToken,
   parseStreamForToolCall,
   renderConversationForGemma,
   CHANNEL_OPEN,
@@ -22,7 +23,11 @@ const MAX_TOOL_ITERATIONS = 5;
 const THINKING_OPEN_MARKER = `${CHANNEL_OPEN}thought\n`;
 
 export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
-  const { config, messages, tools, signal, onToken, onDone, onError, onUsage } = opts;
+  const { config, messages, tools, signal, onToken, onHistoryDelta, onDone, onError, onUsage } =
+    opts;
+  const emitHistory = (delta: string): void => {
+    if (delta && onHistoryDelta) onHistoryDelta(delta);
+  };
 
   const reportUsage = (promptText: string, outputText: string): void => {
     if (!onUsage) return;
@@ -122,6 +127,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           assistantTurnText += parsed.emitText;
           assistantTurnHistory += parsed.emitText;
           emit(parsed.emitText);
+          emitHistory(parsed.emitText);
         }
         toolBuffer = parsed.rest;
         if (parsed.toolCall) {
@@ -161,6 +167,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           assistantTurnText += toolBuffer;
           assistantTurnHistory += toolBuffer;
           emit(toolBuffer);
+          emitHistory(toolBuffer);
           toolBuffer = '';
         }
         reportUsage(prompt, assistantTurnText);
@@ -171,11 +178,13 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       reportUsage(prompt, assistantTurnText);
 
       const tc: { name: string; argsJson: string } = pendingToolCall;
+      const toolCallToken = formatToolCallToken(tc.name, tc.argsJson);
 
       conv.push({
         role: 'assistant',
-        content: assistantTurnHistory + formatToolCallToken(tc.name, tc.argsJson),
+        content: assistantTurnHistory + toolCallToken,
       });
+      emitHistory(toolCallToken);
 
       if (signal?.aborted) {
         onDone(accumulatedText);
@@ -192,6 +201,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       const result = await runAgentTool(tc.name, inputObj, signal);
       const resultStr = JSON.stringify(result);
       emit(`← ${resultStr}\n\n`);
+      emitHistory(formatToolResponseToken(tc.name, resultStr));
 
       conv.push({
         role: 'tool',

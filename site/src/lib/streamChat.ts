@@ -19,6 +19,14 @@ export interface StreamChatOptions {
   tools?: AgentToolSpec[];
   signal?: AbortSignal;
   onToken: (delta: string) => void;
+  /**
+   * Optional companion to `onToken` that receives a parallel stream of
+   * replay-format text — what should be persisted as the assistant's
+   * `historyContent` and fed back to the model on the next turn. Currently
+   * only the local-Gemma path emits this; the cloud-API paths leave it
+   * unset because their `onToken` text is already replay-safe.
+   */
+  onHistoryDelta?: (delta: string) => void;
   onDone: (full: string) => void;
   onError: (err: Error) => void;
   onUsage?: (usage: TokenUsageReport) => void;

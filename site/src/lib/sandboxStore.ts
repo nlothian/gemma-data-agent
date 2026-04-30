@@ -47,8 +47,10 @@ export interface SandboxState {
 }
 
 const DB_NAME = 'haw-sandbox';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'kv';
+export const REGISTRY_STORE = 'registry';
+export const PANEL_STORE = 'panel';
 const KEY_HANDLE = 'directoryHandle';
 const KEY_META = 'meta';
 
@@ -113,7 +115,7 @@ function hasFsAccess(): boolean {
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function openDb(): Promise<IDBDatabase> {
+export function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -121,6 +123,12 @@ function openDb(): Promise<IDBDatabase> {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) {
           db.createObjectStore(STORE);
+        }
+        if (!db.objectStoreNames.contains(REGISTRY_STORE)) {
+          db.createObjectStore(REGISTRY_STORE);
+        }
+        if (!db.objectStoreNames.contains(PANEL_STORE)) {
+          db.createObjectStore(PANEL_STORE);
         }
       };
       req.onsuccess = () => resolve(req.result);

@@ -1,4 +1,5 @@
-import { useState, useCallback, useSyncExternalStore } from 'react';
+import { useState, useCallback, useEffect, useSyncExternalStore } from 'react';
+import * as panel from '../lib/executionPanelStore';
 import {
   subscribe,
   getSnapshot,
@@ -7,6 +8,7 @@ import {
   type PaneKind,
   type PaneStatus,
 } from '../lib/executionPanelStore';
+import { runPython, runSQL } from '../lib/agentTools';
 import useExecutionPanelHeight, {
   MIN_HEIGHT,
   MAX_HEIGHT,
@@ -15,7 +17,7 @@ import CodeView from './CodeView';
 import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
 import SqlResultGrid from './SqlResultGrid';
-import { ChevronDownIcon } from './Icons';
+import { ChevronDownIcon, PlayIcon } from './Icons';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
@@ -26,12 +28,56 @@ export default function ExecutionPanel() {
   const [codeFolded, setCodeFolded] = useState(false);
   const { height, setHeight } = useExecutionPanelHeight();
 
-  const pythonSource =
-    snap.python.source.length > 0 ? snap.python.source : PYTHON_PLACEHOLDER;
-  const sqlSource =
-    snap.sql.source.length > 0 ? snap.sql.source : SQL_PLACEHOLDER;
+  const [editedPython, setEditedPython] = useState<string | null>(null);
+  const [editedSql, setEditedSql] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditedPython(null);
+  }, [snap.python.source]);
+  useEffect(() => {
+    setEditedSql(null);
+  }, [snap.sql.source]);
+
+  const pythonValue = editedPython ?? snap.python.source;
+  const sqlValue = editedSql ?? snap.sql.source;
+  const isPythonEdited =
+    editedPython !== null && editedPython !== snap.python.source;
+  const isSqlEdited = editedSql !== null && editedSql !== snap.sql.source;
+  const pythonBusy =
+    snap.python.status === 'pending' || snap.python.status === 'running';
+  const sqlBusy = snap.sql.status === 'pending' || snap.sql.status === 'running';
 
   const toggleFold = () => setCodeFolded((v) => !v);
+
+  const handleRun = useCallback(async () => {
+    if (active === 'python') {
+      const code = editedPython ?? snap.python.source;
+      if (code.length === 0 || pythonBusy) return;
+      panel.setPending('python', code);
+      panel.setRunning('python');
+      const res = await runPython(code);
+      panel.setPythonResult(res);
+    } else if (active === 'sql') {
+      const sqlText = editedSql ?? snap.sql.source;
+      if (sqlText.length === 0 || sqlBusy) return;
+      panel.setPending('sql', sqlText);
+      panel.setRunning('sql');
+      const res = await runSQL(sqlText);
+      panel.setSqlResult(res);
+    }
+  }, [
+    active,
+    editedPython,
+    editedSql,
+    snap.python.source,
+    snap.sql.source,
+    pythonBusy,
+    sqlBusy,
+  ]);
+
+  const canRun =
+    (active === 'python' && isPythonEdited && !pythonBusy && pythonValue.length > 0) ||
+    (active === 'sql' && isSqlEdited && !sqlBusy && sqlValue.length > 0);
 
   const onResizeHandlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -129,12 +175,39 @@ export default function ExecutionPanel() {
                   />
                   <span>Code</span>
                 </button>
+                <button
+                  type="button"
+                  className="exec-play-btn"
+                  onClick={handleRun}
+                  disabled={!canRun}
+                  aria-label="Run edited code"
+                  title={
+                    canRun
+                      ? 'Run edited code'
+                      : 'Edit the code to enable running'
+                  }
+                >
+                  <PlayIcon size={14} />
+                  <span>Run</span>
+                </button>
               </div>
               <div className="exec-editor">
                 {active === 'python' ? (
-                  <CodeView code={pythonSource} language="python" />
+                  <CodeView
+                    code={pythonValue}
+                    language="python"
+                    editable
+                    onChange={setEditedPython}
+                    placeholder={PYTHON_PLACEHOLDER}
+                  />
                 ) : (
-                  <CodeView code={sqlSource} language="sql" />
+                  <CodeView
+                    code={sqlValue}
+                    language="sql"
+                    editable
+                    onChange={setEditedSql}
+                    placeholder={SQL_PLACEHOLDER}
+                  />
                 )}
               </div>
             </div>
