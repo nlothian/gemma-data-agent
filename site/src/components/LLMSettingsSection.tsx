@@ -1,17 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  AlertCircleIcon,
   EyeIcon,
   EyeOffIcon,
-  LoaderIcon,
   PlusIcon,
-  RefreshIcon,
   TrashIcon,
 } from './Icons';
+import ModelPickerCell from './ModelPickerCell';
 import useLLMConfig from '../hooks/useLLMConfig';
-import useProviderModels, {
-  type ProviderModelsEntry,
-} from '../hooks/useProviderModels';
+import useProviderModels from '../hooks/useProviderModels';
 import {
   BUILT_IN_PROVIDERS,
   LOCAL_GEMMA_ENDPOINT,
@@ -27,8 +23,6 @@ import {
 } from '../lib/localLlm/models';
 import { isModelCached } from '../lib/localLlm/opfsCache';
 import { detectWebGpu, type WebGpuStatus } from '../lib/localLlm/webgpu';
-
-const CUSTOM_SENTINEL = '__custom__';
 
 const styles = {
   wrapper: {
@@ -304,271 +298,6 @@ function resetInputStyle(el: HTMLInputElement): void {
   el.style.boxShadow = 'none';
 }
 
-interface ModelCellProps {
-  endpointUrl: string;
-  providerLabel: string;
-  value: string;
-  apiKey: string;
-  entry: ProviderModelsEntry;
-  onCommit: (next: string) => void;
-  onRefresh: () => void;
-  disabled?: boolean;
-}
-
-function splitModelId(id: string): [string, string] {
-  const i = id.indexOf('/');
-  return i === -1 ? ['', id] : [id.slice(0, i), id.slice(i + 1)];
-}
-
-function ModelCell({
-  endpointUrl,
-  providerLabel,
-  value,
-  apiKey,
-  entry,
-  onCommit,
-  onRefresh,
-  disabled,
-}: ModelCellProps) {
-  const [mode, setMode] = useState<'select' | 'custom'>('select');
-  const [local, setLocal] = useState<string>(value);
-  const isOpenRouter = endpointUrl.includes('openrouter.ai');
-  const [valueProvider, valueModel] = splitModelId(value);
-  const [draftProvider, setDraftProvider] = useState<string>(valueProvider);
-
-  useEffect(() => {
-    setLocal(value);
-  }, [value, endpointUrl]);
-
-  useEffect(() => {
-    setDraftProvider(splitModelId(value)[0]);
-  }, [value, endpointUrl]);
-
-  useEffect(() => {
-    if (disabled) return;
-    if (entry.status !== 'idle') return;
-    if (!endpointUrl) return;
-    if (apiKey === '' && !isOpenRouter) return;
-    onRefresh();
-  }, [endpointUrl, apiKey, entry.status, disabled, isOpenRouter, onRefresh]);
-
-  const loading = entry.status === 'loading';
-  const models = entry.status === 'success' ? entry.models : [];
-  const showSynthetic =
-    entry.status === 'success' && value !== '' && !models.includes(value);
-
-  const useSplit = isOpenRouter && mode === 'select' && entry.status === 'success';
-
-  const providers = useMemo(() => {
-    if (!useSplit) return [];
-    const set = new Set<string>();
-    for (const m of models) {
-      const [p] = splitModelId(m);
-      if (p) set.add(p);
-    }
-    return Array.from(set).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }, [useSplit, models]);
-
-  const modelsInDraftProvider = useMemo(() => {
-    if (!useSplit || !draftProvider) return [];
-    const list: string[] = [];
-    for (const m of models) {
-      const [p, rest] = splitModelId(m);
-      if (p === draftProvider) list.push(rest);
-    }
-    return list;
-  }, [useSplit, models, draftProvider]);
-
-  const selectedModelInDraft = draftProvider === valueProvider ? valueModel : '';
-  const showSyntheticProvider =
-    useSplit && valueProvider !== '' && !providers.includes(valueProvider);
-  const showSyntheticModel =
-    useSplit &&
-    draftProvider === valueProvider &&
-    valueModel !== '' &&
-    !modelsInDraftProvider.includes(valueModel);
-
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    const next = e.target.value;
-    if (next === CUSTOM_SENTINEL) {
-      setMode('custom');
-      return;
-    }
-    if (next !== value) onCommit(next);
-  };
-
-  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    const next = e.target.value;
-    if (next === CUSTOM_SENTINEL) {
-      setMode('custom');
-      return;
-    }
-    setDraftProvider(next);
-  };
-
-  const handleModelInDraftChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    const next = e.target.value;
-    if (next === '' || !draftProvider) return;
-    const full = `${draftProvider}/${next}`;
-    if (full !== value) onCommit(full);
-  };
-
-  return (
-    <div style={styles.modelWrap}>
-      {mode === 'select' ? (
-        <>
-          {useSplit ? (
-            <div style={styles.modelRowInner}>
-              <div style={styles.splitStack}>
-                <select
-                  value={draftProvider}
-                  onChange={handleProviderChange}
-                  disabled={disabled || loading}
-                  aria-label={`Model provider for ${providerLabel}`}
-                  style={styles.selectEl}
-                >
-                  {draftProvider === '' && (
-                    <option value="" disabled>
-                      -- Provider --
-                    </option>
-                  )}
-                  {showSyntheticProvider && (
-                    <option value={valueProvider}>{valueProvider} (not in list)</option>
-                  )}
-                  {providers.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_SENTINEL}>Custom…</option>
-                </select>
-                <select
-                  value={selectedModelInDraft}
-                  onChange={handleModelInDraftChange}
-                  disabled={disabled || loading || !draftProvider}
-                  aria-label={`Model for ${providerLabel}`}
-                  style={styles.selectEl}
-                >
-                  {selectedModelInDraft === '' && (
-                    <option value="" disabled>
-                      {draftProvider ? '-- Model --' : '-- Pick provider first --'}
-                    </option>
-                  )}
-                  {showSyntheticModel && (
-                    <option value={valueModel}>{valueModel} (not in list)</option>
-                  )}
-                  {modelsInDraftProvider.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={disabled || loading}
-                aria-label={`Refresh models for ${providerLabel}`}
-                style={styles.refreshButton}
-              >
-                {loading ? (
-                  <LoaderIcon size={14} style={styles.spinnerIcon} />
-                ) : (
-                  <RefreshIcon size={14} />
-                )}
-              </button>
-            </div>
-          ) : (
-            <div style={styles.modelRowInner}>
-              <select
-                value={value}
-                onChange={handleSelectChange}
-                disabled={disabled || loading}
-                aria-label={`Model for ${providerLabel}`}
-                style={styles.selectEl}
-              >
-                {value === '' && (
-                  <option value="" disabled>
-                    {loading ? 'Loading models…' : '-- Select a model --'}
-                  </option>
-                )}
-                {showSynthetic && (
-                  <option value={value}>{value} (not in list)</option>
-                )}
-                {models.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-                <option value={CUSTOM_SENTINEL}>Custom…</option>
-              </select>
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={disabled || loading}
-                aria-label={`Refresh models for ${providerLabel}`}
-                style={styles.refreshButton}
-              >
-                {loading ? (
-                  <LoaderIcon size={14} style={styles.spinnerIcon} />
-                ) : (
-                  <RefreshIcon size={14} />
-                )}
-              </button>
-            </div>
-          )}
-          {entry.status === 'error' && (
-            <div
-              style={styles.errorText}
-              title={entry.message}
-              role="alert"
-            >
-              <AlertCircleIcon size={12} />
-              <span
-                style={{
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {entry.message}
-              </span>
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          <input
-            type="text"
-            value={local}
-            onChange={(e) => setLocal(e.target.value)}
-            onFocus={onInputFocus}
-            onBlur={(e) => {
-              resetInputStyle(e.currentTarget);
-              if (local !== value) onCommit(local);
-            }}
-            disabled={disabled}
-            placeholder="Model"
-            autoComplete="off"
-            spellCheck={false}
-            aria-label={`Model for ${providerLabel}`}
-            style={styles.input}
-          />
-          <button
-            type="button"
-            onClick={() => setMode('select')}
-            style={styles.customLink}
-          >
-            Use list
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
 interface KeyCellProps {
   endpointUrl: string;
   providerLabel: string;
@@ -724,7 +453,7 @@ function CustomRow({
           syncKey={endpoint.id}
         />
       </div>
-      <ModelCell
+      <ModelPickerCell
         endpointUrl={endpoint.url || endpoint.id}
         providerLabel={providerLabel}
         value={model}
@@ -962,7 +691,7 @@ export default function LLMSettingsSection() {
                 <div style={styles.builtInLabel}>{provider.label}</div>
                 <div style={styles.builtInUrl}>{provider.url}</div>
               </div>
-              <ModelCell
+              <ModelPickerCell
                 endpointUrl={provider.url}
                 providerLabel={provider.label}
                 value={model}

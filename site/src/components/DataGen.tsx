@@ -29,6 +29,8 @@ import {
 import { probeDataset, UnsupportedFormatError } from '../lib/datagen/probeDataset';
 import { useLLMConfig } from '../hooks/useLLMConfig';
 import useSandboxConfig from '../hooks/useSandboxConfig';
+import useProviderModels from '../hooks/useProviderModels';
+import ModelPickerCell from './ModelPickerCell';
 import { setMode as setToolGateMode } from '../lib/toolDebugger';
 import {
   LOCAL_GEMMA_MODELS,
@@ -48,6 +50,7 @@ type RunState =
   | { kind: 'error'; message: string };
 
 const DEFAULT_TEACHER_MODEL = 'anthropic/claude-sonnet-4.5';
+const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1';
 
 const DATA_EXTENSIONS = new Set(['csv', 'tsv', 'parquet', 'json', 'jsonl', 'xlsx']);
 
@@ -55,7 +58,14 @@ export default function DataGen() {
   const hasFsAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
   const llm = useLLMConfig();
   const sandbox = useSandboxConfig();
-  const hasOpenrouterKey = Boolean(llm.config.apiKeys['https://openrouter.ai/api/v1']);
+  const providerModels = useProviderModels();
+  const openrouterKey = llm.config.apiKeys[OPENROUTER_ENDPOINT] ?? '';
+  const hasOpenrouterKey = openrouterKey.trim() !== '';
+  const orModelsEntry = providerModels.getEntry(OPENROUTER_ENDPOINT);
+  const refreshOrModels = useCallback(
+    () => providerModels.refresh(OPENROUTER_ENDPOINT, openrouterKey),
+    [providerModels, openrouterKey],
+  );
 
   const [outState, setOutState] = useState<OutputDirState>({ kind: 'idle' });
 
@@ -392,13 +402,18 @@ export default function DataGen() {
         )}
         <label style={labelStyle}>
           Model
-          <input
-            type="text"
-            value={teacherModel}
-            onChange={(e) => setTeacherModel(e.target.value)}
-            placeholder="anthropic/claude-sonnet-4.5"
-            style={inputStyle}
-          />
+          <div style={{ marginTop: '0.25rem' }}>
+            <ModelPickerCell
+              endpointUrl={OPENROUTER_ENDPOINT}
+              providerLabel="Teacher"
+              value={teacherModel}
+              apiKey={openrouterKey}
+              entry={orModelsEntry}
+              onCommit={setTeacherModel}
+              onRefresh={refreshOrModels}
+              disabled={!hasOpenrouterKey}
+            />
+          </div>
         </label>
       </Card>
 
@@ -586,12 +601,18 @@ export default function DataGen() {
           </label>
           <label style={labelStyle}>
             Judge model (OpenRouter)
-            <input
-              type="text"
-              value={judgeModel}
-              onChange={(e) => setJudgeModel(e.target.value)}
-              style={inputStyle}
-            />
+            <div style={{ marginTop: '0.25rem' }}>
+              <ModelPickerCell
+                endpointUrl={OPENROUTER_ENDPOINT}
+                providerLabel="Judge"
+                value={judgeModel}
+                apiKey={openrouterKey}
+                entry={orModelsEntry}
+                onCommit={setJudgeModel}
+                onRefresh={refreshOrModels}
+                disabled={!hasOpenrouterKey}
+              />
+            </div>
           </label>
           <label style={labelStyle}>
             Rollouts per task
