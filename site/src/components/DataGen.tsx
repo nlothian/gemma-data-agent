@@ -26,6 +26,8 @@ import {
   type TaskGenFlavor,
   type GenerateTasksResult,
 } from '../lib/datagen/taskGen';
+import { listDatasets, type DatasetEntry } from '../lib/datagen/datasetBrowser';
+import { probeDataset, UnsupportedFormatError } from '../lib/datagen/probeDataset';
 import { useLLMConfig } from '../hooks/useLLMConfig';
 import { setMode as setToolGateMode } from '../lib/toolDebugger';
 import {
@@ -86,6 +88,11 @@ export default function DataGen() {
   const [tgDataset, setTgDataset] = useState<string>('');
   const [tgSchema, setTgSchema] = useState<string>('');
   const [tgCount, setTgCount] = useState<string>('20');
+  const [datasets, setDatasets] = useState<DatasetEntry[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hasFsAccess) return;
@@ -236,6 +243,45 @@ export default function DataGen() {
       setRejState({ kind: 'error', message: errorMessage(err) });
     }
   }, [wsState, llm.config, studentModelId, judgeModel, rolloutsPerTask, rejMaxTasks, hasOpenrouterKey]);
+
+  const refreshDatasets = useCallback(async () => {
+    if (wsState.kind !== 'restored') return;
+    setDatasetsLoading(true);
+    setDatasetsError(null);
+    try {
+      const list = await listDatasets(wsState.workspace);
+      setDatasets(list);
+    } catch (err) {
+      setDatasetsError(errorMessage(err));
+    } finally {
+      setDatasetsLoading(false);
+    }
+  }, [wsState]);
+
+  // Auto-list datasets when a workspace becomes available.
+  useEffect(() => {
+    if (wsState.kind === 'restored') void refreshDatasets();
+    else setDatasets([]);
+  }, [wsState, refreshDatasets]);
+
+  const onSelectDataset = useCallback(async (path: string) => {
+    setTgDataset(path);
+    setProbeError(null);
+    if (!path || wsState.kind !== 'restored') return;
+    setProbing(true);
+    try {
+      const probe = await probeDataset(wsState.workspace, path);
+      setTgSchema(probe.formattedSummary);
+    } catch (err) {
+      if (err instanceof UnsupportedFormatError) {
+        setProbeError(err.message + ' Fill the schema summary by hand.');
+      } else {
+        setProbeError(`Probe failed: ${errorMessage(err)}`);
+      }
+    } finally {
+      setProbing(false);
+    }
+  }, [wsState]);
 
   const onGenerateTasks = useCallback(async () => {
     if (wsState.kind !== 'restored') return;
@@ -389,24 +435,43 @@ export default function DataGen() {
           </label>
         </div>
         <label style={labelStyle}>
-          Dataset path (workspace-relative, e.g. <code>datasets/iris.csv</code>)
-          <input
-            type="text"
-            value={tgDataset}
-            onChange={(e) => setTgDataset(e.target.value)}
-            placeholder="datasets/iris.csv"
-            style={inputStyle}
-          />
+          Dataset
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+            <select
+              value={tgDataset}
+              onChange={(e) => onSelectDataset(e.target.value)}
+              style={{ ...inputStyle, flex: 1, marginTop: 0 }}
+              disabled={datasetsLoading || datasets.length === 0}
+            >
+              <option value="">{datasetsLoading ? 'Reading workspace…' : datasets.length === 0 ? 'No data files in workspace' : '— pick a file —'}</option>
+              {datasets.map((d) => (
+                <option key={d.path} value={d.path}>
+                  {d.path} ({formatBytes(d.size)})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              style={{ ...btnStyle, ...btnSecondary }}
+              onClick={refreshDatasets}
+              disabled={datasetsLoading || wsState.kind !== 'restored'}
+              title="Re-read the workspace directory"
+            >
+              ↻
+            </button>
+          </div>
         </label>
+        {datasetsError && <p style={errStyle}>{datasetsError}</p>}
         <label style={labelStyle}>
-          Schema summary (columns, dtypes, a few sample rows)
+          Schema summary {probing && <span style={{ color: '#888' }}>(probing via DuckDB…)</span>}
           <textarea
             value={tgSchema}
             onChange={(e) => setTgSchema(e.target.value)}
-            placeholder={`Columns: sepal_length (float), sepal_width (float), petal_length (float), petal_width (float), species (str)\nSample rows: (5.1, 3.5, 1.4, 0.2, "setosa"), (7.0, 3.2, 4.7, 1.4, "versicolor"), (6.3, 3.3, 6.0, 2.5, "virginica")`}
-            style={{ ...inputStyle, minHeight: 100, fontFamily: 'inherit' }}
+            placeholder={`Pick a CSV / Parquet / JSON file above and we'll fill this in via DuckDB. Or write it by hand if the format isn't supported.`}
+            style={{ ...inputStyle, minHeight: 140, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.85rem' }}
           />
         </label>
+        {probeError && <p style={errStyle}>{probeError}</p>}
         <div style={{ marginTop: '0.75rem' }}>
           <button
             style={btnStyle}
@@ -611,6 +676,13 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 const btnStyle: React.CSSProperties = {
