@@ -144,7 +144,7 @@ export async function ensureLoaded(modelId: LocalGemmaId): Promise<void> {
   }
 }
 
-function isInputTooLongError(err: unknown): boolean {
+export function isInputTooLongError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   return msg.includes('Input is too long for the model to process');
 }

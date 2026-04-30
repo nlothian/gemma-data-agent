@@ -58,14 +58,23 @@ function codeAreaSelector(toolName: string): string | null {
   return null;
 }
 
+function actionButtonSelector(toolName: string): string {
+  if (toolName === COMPACTION_TOOL_NAME) {
+    return 'button[aria-label="Run compaction"]';
+  }
+  return 'button[aria-label="Step"]';
+}
+
 function computeLayout(toolName: string): Layout | null {
   const explainerEl = document.querySelector('.explainer-panel');
-  const stepEl = document.querySelector('button[aria-label="Step"]');
-  if (!explainerEl || !stepEl) return null;
+  const actionEl = document.querySelector(actionButtonSelector(toolName));
+  if (!explainerEl || !actionEl) return null;
 
-  const playEl = document.querySelector('button[aria-label="Play"]');
-  const stepRect = rectOf(stepEl);
-  const buttonsRaw = playEl ? unionRect(stepRect, rectOf(playEl)) : stepRect;
+  let buttonsRaw = rectOf(actionEl);
+  if (toolName !== COMPACTION_TOOL_NAME) {
+    const playEl = document.querySelector('button[aria-label="Play"]');
+    if (playEl) buttonsRaw = unionRect(buttonsRaw, rectOf(playEl));
+  }
 
   const cutouts: Rect[] = [
     inflate(rectOf(explainerEl), PADDING),
@@ -136,10 +145,11 @@ export default function PauseCoachmark() {
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(recompute);
       const codeSel = codeAreaSelector(toolName);
+      const isCompaction = toolName === COMPACTION_TOOL_NAME;
       const targets = [
         document.querySelector('.explainer-panel'),
-        document.querySelector('button[aria-label="Step"]'),
-        document.querySelector('button[aria-label="Play"]'),
+        document.querySelector(actionButtonSelector(toolName)),
+        isCompaction ? null : document.querySelector('button[aria-label="Play"]'),
         codeSel ? document.querySelector(codeSel) : null,
       ].filter((el): el is Element => el !== null);
       for (const t of targets) ro.observe(t);

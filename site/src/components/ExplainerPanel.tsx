@@ -122,7 +122,7 @@ function ExplainerBody({
   if (state.kind === 'paused-compaction') {
     return (
       <>
-        <p>Compaction is required because context is at 90%. Press Step or Play to run it.</p>
+        <p>Compaction is required because context is above 90%. Press the Compaction button to run it.</p>
         <button
           type="button"
           className="explainer-show-me"

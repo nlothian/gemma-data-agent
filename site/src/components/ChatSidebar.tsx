@@ -33,13 +33,14 @@ import {
 import {
   buildCompactionContext,
   buildCompactionSlice,
+  compactNow,
   COMPACTION_TOOL_NAME,
   mapMessagesForLLM,
   maybeAutoCompact,
   runCompaction,
 } from '../lib/autoCompaction';
 import { renderConversationForGemma } from '../lib/localLlm/toolPrompt';
-import { sizeInTokens } from '../lib/localLlm/llmService';
+import { isInputTooLongError, sizeInTokens } from '../lib/localLlm/llmService';
 import type { TokenUsage } from '../lib/tokenUsageStore';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
@@ -301,7 +302,12 @@ export default function ChatSidebar() {
     executionPanelStore.getServerSnapshot,
   );
   const restoring = panelSnap.restoring;
-  const stepShaking = useAttentionShake(Boolean(debugger_.pending));
+  const compactionPending =
+    debugger_.pending?.toolName === COMPACTION_TOOL_NAME;
+  const stepShaking = useAttentionShake(
+    Boolean(debugger_.pending) && !compactionPending,
+  );
+  const compactShaking = useAttentionShake(compactionPending);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -522,11 +528,47 @@ export default function ChatSidebar() {
           }, 0);
         },
         onError: (err) => {
-          setLastAssistantContent(err.message || 'Request failed.', true);
-          flush();
           setIsStreaming(false);
           executionPanelStore.setLlmActive(false);
           abortRef.current = null;
+
+          if (isInputTooLongError(err)) {
+            // The provider rejected the request as too long. Drop the failed
+            // user+assistant pair, run the compaction flow (gated through
+            // Step in paused mode, immediate in running mode), then retry
+            // the original prompt against the smaller context.
+            const truncated = historyRef.current.slice(0, -2);
+            const slice = buildCompactionSlice(truncated);
+            if (slice) {
+              replaceMessages(truncated);
+              flush();
+              void (async () => {
+                try {
+                  const ok = await compactNow({
+                    config,
+                    toCompact: slice.toCompact,
+                    recent: slice.recent,
+                    replaceMessages,
+                    flush,
+                    setHighlightId: setHighlightCompactedId,
+                    scrollToTop,
+                    estimatePostCompactionUsage,
+                    signal: controller.signal,
+                  });
+                  if (ok) void sendPrompt(trimmed);
+                } catch (compactErr) {
+                  console.warn(
+                    'Auto-compaction after input-too-long failed:',
+                    compactErr,
+                  );
+                }
+              })();
+              return;
+            }
+          }
+
+          setLastAssistantContent(err.message || 'Request failed.', true);
+          flush();
         },
       });
     },
@@ -597,7 +639,6 @@ export default function ChatSidebar() {
     unconfigured,
   ]);
 
-  const compactionPending = debugger_.pending?.toolName === COMPACTION_TOOL_NAME;
   const submitDisabled =
     unconfigured ||
     restoring ||
@@ -797,11 +838,22 @@ export default function ChatSidebar() {
             </button>
             <button
               type="button"
-              className={'chat-iconbtn' + pressureSuffix}
-              onClick={() => void onCompact()}
-              disabled={compactDisabled}
-              title="Compact conversation"
-              aria-label="Compact conversation"
+              className={
+                'chat-iconbtn' +
+                pressureSuffix +
+                (compactionPending
+                  ? compactShaking
+                    ? ' chat-iconbtn--shake'
+                    : ' chat-iconbtn--attention'
+                  : '')
+              }
+              onClick={() => {
+                if (compactionPending) toolDebugger.step();
+                else void onCompact();
+              }}
+              disabled={compactionPending ? false : compactDisabled}
+              title={compactionPending ? 'Run compaction' : 'Compact conversation'}
+              aria-label={compactionPending ? 'Run compaction' : 'Compact conversation'}
             >
               <CompressIcon size={16} />
             </button>

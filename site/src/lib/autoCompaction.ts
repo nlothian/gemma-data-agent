@@ -102,6 +102,14 @@ export interface RunCompactionDeps {
 export async function runCompaction(deps: RunCompactionDeps): Promise<void> {
   const { config, toCompact, recent, replaceMessages, flush, setHighlightId, scrollToTop } = deps;
   executionPanelStore.setLlmCompacting(true);
+  // Yield to the browser for a paint before kicking off the model. Local
+  // Gemma's prefill can block the main thread for tens of seconds on long
+  // prompts; without this yield, React never gets a chance to render the
+  // "Compacting" indicator, the disabled button state, or the throbber
+  // label until after the freeze ends.
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
   try {
     const summary = await compactConversation({ config, toCompact });
     const marker: ChatMessage = {
@@ -138,6 +146,31 @@ export interface MaybeAutoCompactArgs {
   estimatePostCompactionUsage?: (messages: ChatMessage[]) => TokenUsage | null;
 }
 
+/**
+ * Run compaction now, gating through the Step debugger if paused. Returns
+ * `true` when the compaction ran, `false` when the gate was aborted (e.g. New
+ * Chat) so the caller can skip any post-compaction follow-up like a retry.
+ */
+export async function compactNow(
+  args: RunCompactionDeps & { signal: AbortSignal },
+): Promise<boolean> {
+  if (toolDebugger.getSnapshot().mode === 'paused') {
+    try {
+      await toolDebugger.awaitToolGate(
+        COMPACTION_TOOL_NAME,
+        { messages: args.toCompact },
+        args.signal,
+      );
+    } catch (err) {
+      if ((err as DOMException)?.name === 'AbortError') return false;
+      throw err;
+    }
+    if (args.signal.aborted) return false;
+  }
+  await runCompaction(args);
+  return true;
+}
+
 export async function maybeAutoCompact(args: MaybeAutoCompactArgs): Promise<void> {
   const usage = tokenUsageStore.getSnapshot();
   if (!usage) return;
@@ -151,21 +184,7 @@ export async function maybeAutoCompact(args: MaybeAutoCompactArgs): Promise<void
   const slice = buildCompactionSlice(args.messages);
   if (!slice) return;
 
-  if (toolDebugger.getSnapshot().mode === 'paused') {
-    try {
-      await toolDebugger.awaitToolGate(
-        COMPACTION_TOOL_NAME,
-        { messages: slice.toCompact },
-        args.signal,
-      );
-    } catch (err) {
-      if ((err as DOMException)?.name === 'AbortError') return;
-      throw err;
-    }
-    if (args.signal.aborted) return;
-  }
-
-  await runCompaction({
+  await compactNow({
     config: args.config,
     toCompact: slice.toCompact,
     recent: slice.recent,
@@ -174,5 +193,6 @@ export async function maybeAutoCompact(args: MaybeAutoCompactArgs): Promise<void
     setHighlightId: args.setHighlightId,
     scrollToTop: args.scrollToTop,
     estimatePostCompactionUsage: args.estimatePostCompactionUsage,
+    signal: args.signal,
   });
 }
