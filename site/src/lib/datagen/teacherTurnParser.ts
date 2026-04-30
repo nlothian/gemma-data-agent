@@ -31,7 +31,11 @@ export class TeacherProtocolError extends Error {
   }
 }
 
-const FENCE_RE = /```(tool_call|final)\s*\n([\s\S]*?)\n```/;
+// Tolerant of any whitespace (including none) between the language tag and
+// the JSON body, and between the body and the closing fence. Frontier models
+// frequently emit `\`\`\`tool_call{"name":...}` on one line or `\`\`\`final {}`
+// without a newline; both are unambiguous and we want to accept them.
+const FENCE_RE = /```(tool_call|final)\s*([\s\S]*?)\s*```/;
 
 export function parseTeacherTurn(raw: string): TeacherTurn {
   const match = FENCE_RE.exec(raw);
