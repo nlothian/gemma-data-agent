@@ -49,6 +49,14 @@ let currentLoadPromise: Promise<LlmInferenceLike> | null = null;
 let currentInference: LlmInferenceLike | null = null;
 let currentLoadId = 0;
 
+// Tracks an in-flight `generateResponse` invocation. MediaPipe rejects a new
+// `generateResponse` call with "Previous invocation or loading is still
+// ongoing" until its callback has fired with `done=true`. Callers must await
+// this before issuing a new generation. Resolves regardless of how the prior
+// generation ended (normal, abort, callback throw).
+let pendingGeneration: Promise<void> | null = null;
+const GENERATION_WIND_DOWN_MS = 500;
+
 async function loadMediapipe(): Promise<MediapipeModule> {
   if (!mediapipePromise) {
     mediapipePromise = import('@mediapipe/tasks-genai') as unknown as Promise<MediapipeModule>;
@@ -157,27 +165,85 @@ export interface GenerateOptions {
 
 export async function generate(opts: GenerateOptions): Promise<string> {
   const { prompt, signal, onToken } = opts;
+
+  // Wait for any prior generation to fully wind down inside MediaPipe before
+  // issuing a new one — otherwise the SDK throws "Previous invocation or
+  // loading is still ongoing".
+  if (pendingGeneration) {
+    try {
+      await pendingGeneration;
+    } catch {
+      // ignore — the prior generation's caller already saw its error
+    }
+  }
+
   const inference = currentInference;
   if (!inference) {
     throw new Error('Local Gemma model is not loaded. Call ensureLoaded() first.');
   }
 
+  let resolveMpDone: () => void = () => {};
+  const mpDone = new Promise<void>((resolve) => {
+    resolveMpDone = resolve;
+  });
+  pendingGeneration = mpDone;
+  void mpDone.finally(() => {
+    if (pendingGeneration === mpDone) pendingGeneration = null;
+  });
+
   return await new Promise<string>((resolve, reject) => {
     let aggregated = '';
     let aborted = false;
+    let settled = false;
+    let windDownTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const settleOk = (): void => {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve(aggregated);
+    };
+    const settleErr = (err: unknown): void => {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    const armWindDown = (settleAs: 'ok' | null): void => {
+      if (windDownTimer !== null) return;
+      windDownTimer = setTimeout(() => {
+        windDownTimer = null;
+        resolveMpDone();
+        if (settleAs === 'ok') settleOk();
+      }, GENERATION_WIND_DOWN_MS);
+    };
+    const clearWindDown = (): void => {
+      if (windDownTimer !== null) {
+        clearTimeout(windDownTimer);
+        windDownTimer = null;
+      }
+    };
 
     const onAbort = (): void => {
+      if (aborted) return;
       aborted = true;
       try {
         inference.cancelProcessing?.();
       } catch {
         // ignore
       }
+      // Don't resolve the caller's promise yet — MediaPipe still owes us a
+      // `done=true` callback. Arm a watchdog so a misbehaving SDK can't
+      // deadlock the next generation or hang this caller.
+      armWindDown('ok');
     };
+
     if (signal) {
       if (signal.aborted) {
-        onAbort();
-        resolve(aggregated);
+        // Already aborted — MediaPipe was never invoked, so release both the
+        // lifecycle gate and the caller immediately.
+        resolveMpDone();
+        settleOk();
         return;
       }
       signal.addEventListener('abort', onAbort, { once: true });
@@ -185,27 +251,38 @@ export async function generate(opts: GenerateOptions): Promise<string> {
 
     try {
       inference.generateResponse(prompt, (partial, done) => {
-        if (aborted) return;
-        if (partial) {
+        if (partial && !aborted) {
           aggregated += partial;
           try {
             onToken(partial, done);
           } catch (err) {
-            reject(err instanceof Error ? err : new Error(String(err)));
+            try {
+              inference.cancelProcessing?.();
+            } catch {
+              // ignore
+            }
+            // Settle the caller now with the throw; let the watchdog clear
+            // the lifecycle gate once MediaPipe has had a chance to wind
+            // down (or after the timeout).
+            settleErr(err);
+            armWindDown(null);
             return;
           }
         }
         if (done) {
-          if (signal) signal.removeEventListener('abort', onAbort);
-          resolve(aggregated);
+          clearWindDown();
+          resolveMpDone();
+          settleOk();
         }
       });
     } catch (err) {
-      if (signal) signal.removeEventListener('abort', onAbort);
       if (isInputTooLongError(err)) {
         console.log('[llmService] Input too long for model. Prompt was:\n', prompt);
       }
-      reject(err instanceof Error ? err : new Error(String(err)));
+      // Synchronous throw means MediaPipe never started — release the
+      // lifecycle gate immediately.
+      resolveMpDone();
+      settleErr(err);
     }
   });
 }
