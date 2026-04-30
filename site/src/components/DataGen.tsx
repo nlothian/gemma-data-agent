@@ -21,6 +21,11 @@ import {
   runRejectionPipeline,
   type RejectionPipelineProgress,
 } from '../lib/datagen/rejectionPipeline';
+import {
+  generateTasks,
+  type TaskGenFlavor,
+  type GenerateTasksResult,
+} from '../lib/datagen/taskGen';
 import { useLLMConfig } from '../hooks/useLLMConfig';
 import { setMode as setToolGateMode } from '../lib/toolDebugger';
 import {
@@ -70,6 +75,17 @@ export default function DataGen() {
   const [judgeModel, setJudgeModel] = useState<string>('anthropic/claude-haiku-4.5');
   const [rolloutsPerTask, setRolloutsPerTask] = useState<string>('8');
   const [rejMaxTasks, setRejMaxTasks] = useState<string>('5');
+
+  type TaskGenState =
+    | { kind: 'idle' }
+    | { kind: 'running' }
+    | { kind: 'done'; result: GenerateTasksResult }
+    | { kind: 'error'; message: string };
+  const [tgState, setTgState] = useState<TaskGenState>({ kind: 'idle' });
+  const [tgFlavor, setTgFlavor] = useState<TaskGenFlavor>('normal');
+  const [tgDataset, setTgDataset] = useState<string>('');
+  const [tgSchema, setTgSchema] = useState<string>('');
+  const [tgCount, setTgCount] = useState<string>('20');
 
   useEffect(() => {
     if (!hasFsAccess) return;
@@ -221,6 +237,34 @@ export default function DataGen() {
     }
   }, [wsState, llm.config, studentModelId, judgeModel, rolloutsPerTask, rejMaxTasks, hasOpenrouterKey]);
 
+  const onGenerateTasks = useCallback(async () => {
+    if (wsState.kind !== 'restored') return;
+    if (!hasOpenrouterKey) return;
+    if (!tgDataset.trim() || !tgSchema.trim()) {
+      setTgState({ kind: 'error', message: 'Provide dataset path and schema summary.' });
+      return;
+    }
+    const count = parseInt(tgCount, 10);
+    if (!Number.isFinite(count) || count <= 0) {
+      setTgState({ kind: 'error', message: 'Count must be a positive integer.' });
+      return;
+    }
+    setTgState({ kind: 'running' });
+    try {
+      const result = await generateTasks({
+        workspace: wsState.workspace,
+        mainConfig: llm.config,
+        teacherModel,
+        flavor: tgFlavor,
+        dataset: { path: tgDataset, schemaSummary: tgSchema },
+        count,
+      });
+      setTgState({ kind: 'done', result });
+    } catch (err) {
+      setTgState({ kind: 'error', message: errorMessage(err) });
+    }
+  }, [wsState, llm.config, teacherModel, tgFlavor, tgDataset, tgSchema, tgCount, hasOpenrouterKey]);
+
   return (
     <section style={{ padding: '2rem', fontFamily: "'IBM Plex Sans', sans-serif", maxWidth: 860 }}>
       <h1 style={{ margin: '0 0 0.25rem' }}>haw data generation</h1>
@@ -313,6 +357,72 @@ export default function DataGen() {
           </>
         )}
         {runState.kind === 'error' && <p style={errStyle}>{runState.message}</p>}
+      </Card>
+
+      <Card title="Generate task corpus (teacher → tasks/*.jsonl)">
+        <p style={{ margin: '0 0 0.75rem', color: '#444' }}>
+          Have the teacher generate a batch of user prompts for a dataset.
+          <strong> Normal</strong> mixes lookup / aggregate / plot tasks.
+          <strong> Adversarial</strong> targets known weak spots (schema
+          traps, false premises, refusal probes).
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <label style={labelStyle}>
+            Flavor
+            <select
+              value={tgFlavor}
+              onChange={(e) => setTgFlavor(e.target.value as TaskGenFlavor)}
+              style={inputStyle}
+            >
+              <option value="normal">normal</option>
+              <option value="adversarial">adversarial</option>
+            </select>
+          </label>
+          <label style={labelStyle}>
+            Count
+            <input
+              type="text"
+              value={tgCount}
+              onChange={(e) => setTgCount(e.target.value)}
+              style={inputStyle}
+            />
+          </label>
+        </div>
+        <label style={labelStyle}>
+          Dataset path (workspace-relative, e.g. <code>datasets/iris.csv</code>)
+          <input
+            type="text"
+            value={tgDataset}
+            onChange={(e) => setTgDataset(e.target.value)}
+            placeholder="datasets/iris.csv"
+            style={inputStyle}
+          />
+        </label>
+        <label style={labelStyle}>
+          Schema summary (columns, dtypes, a few sample rows)
+          <textarea
+            value={tgSchema}
+            onChange={(e) => setTgSchema(e.target.value)}
+            placeholder={`Columns: sepal_length (float), sepal_width (float), petal_length (float), petal_width (float), species (str)\nSample rows: (5.1, 3.5, 1.4, 0.2, "setosa"), (7.0, 3.2, 4.7, 1.4, "versicolor"), (6.3, 3.3, 6.0, 2.5, "virginica")`}
+            style={{ ...inputStyle, minHeight: 100, fontFamily: 'inherit' }}
+          />
+        </label>
+        <div style={{ marginTop: '0.75rem' }}>
+          <button
+            style={btnStyle}
+            disabled={tgState.kind === 'running' || wsState.kind !== 'restored' || !hasOpenrouterKey}
+            onClick={onGenerateTasks}
+          >
+            {tgState.kind === 'running' ? 'Generating…' : 'Generate tasks'}
+          </button>
+        </div>
+        {tgState.kind === 'done' && (
+          <p style={{ marginTop: '0.75rem' }}>
+            Wrote {tgState.result.tasksWritten} task{tgState.result.tasksWritten === 1 ? '' : 's'}
+            {' '}to <code>{tgState.result.outputFile}</code>.
+          </p>
+        )}
+        {tgState.kind === 'error' && <p style={errStyle}>{tgState.message}</p>}
       </Card>
 
       <Card title="Gold pipeline (corpus → trajectories.jsonl)">
