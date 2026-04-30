@@ -36,6 +36,7 @@ import {
   StepIcon,
 } from './Icons';
 import Throbber from './Throbber';
+import PressureIndicator from './PressureIndicator';
 import {
   parseAssistantContent,
   type AssistantSegment,
@@ -541,6 +542,7 @@ export default function ChatSidebar() {
             )}
           </div>
           <div className="chat-header-actions">
+            <PressureIndicator />
             {config.activeEndpoint && config.models[config.activeEndpoint] && (
               <span className="chat-tokens">
                 {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}
