@@ -1,7 +1,11 @@
 /**
  * Gold pipeline = run the teacher trajectory loop over every task in the
- * workspace's corpus, append each result to output/trajectories.jsonl,
+ * output dir's corpus, append each result to <output_dir>/trajectories.jsonl,
  * skip any task already present (resumable).
+ *
+ * Datasets referenced by tasks live in the production sandbox; the agent's
+ * LoadData tool resolves relative paths there exactly as it does for the
+ * live agent.
  */
 import { type LLMConfig } from '../../types/llm';
 import { setMode as setToolGateMode } from '../toolDebugger';
@@ -9,6 +13,7 @@ import {
   readCorpus,
   readCompletedTaskIds,
   openTrajectoriesAppender,
+  buildUserPrompt,
   type CorpusTask,
 } from './corpus';
 import {
@@ -16,54 +21,34 @@ import {
   runTeacherTrajectory,
   type TrajectoryRecord,
 } from './trajectory';
-import { type Workspace } from './workspace';
+import { type OutputDir } from './outputDir';
 
 export interface GoldPipelineProgress {
-  /** Total tasks in the corpus (after filtering). */
   total: number;
-  /** Tasks skipped because they already exist in output. */
   skipped: number;
-  /** Tasks completed in this run (regardless of outcome). */
   done: number;
-  /** Tasks completed with outcome === 'completed'. */
   succeeded: number;
-  /** Tasks completed with any other outcome. */
   failed: number;
-  /** Last record written, for live display. */
   lastRecord?: TrajectoryRecord;
-  /** Last task started, for "currently running" display. */
   current?: CorpusTask;
 }
 
 export interface RunGoldPipelineArgs {
-  workspace: Workspace;
+  outputDir: OutputDir;
   mainConfig: LLMConfig;
   teacherModel: string;
-  /** Hard cap; useful for smoke runs. Default: process the whole corpus. */
   maxTasks?: number;
-  /** Filter tasks before running. */
   filter?: (task: CorpusTask) => boolean;
   signal?: AbortSignal;
   onProgress?: (p: GoldPipelineProgress) => void;
 }
 
-function buildPromptWithDatasetHint(task: CorpusTask, workspace: Workspace): string {
-  if (!task.dataset) return task.prompt;
-  // We don't pre-load — the teacher will emit a LoadData call. We just hand
-  // it the path, exactly like the production agent system prompt describes
-  // sandbox-relative paths.
-  return (
-    task.prompt +
-    `\n\n(Dataset is available at sandbox path \`${task.dataset}\` under workspace \`${workspace.name}\`.)`
-  );
-}
-
 export async function runGoldPipeline(args: RunGoldPipelineArgs): Promise<GoldPipelineProgress> {
-  const corpus = await readCorpus(args.workspace);
+  const corpus = await readCorpus(args.outputDir);
   const filtered = args.filter ? corpus.filter(args.filter) : corpus;
   const completed = await readCompletedTaskIds(
-    args.workspace,
-    'output/trajectories.jsonl',
+    args.outputDir,
+    'trajectories.jsonl',
     'gold',
   );
   const queue = filtered.filter((t) => !completed.has(t.taskId));
@@ -79,9 +64,8 @@ export async function runGoldPipeline(args: RunGoldPipelineArgs): Promise<GoldPi
   };
   args.onProgress?.(progress);
 
-  // Keep tool dispatch unblocked for the duration of the run.
   setToolGateMode('running');
-  const appender = await openTrajectoriesAppender(args.workspace);
+  const appender = await openTrajectoriesAppender(args.outputDir);
 
   const runId = new Date().toISOString();
 
@@ -95,7 +79,7 @@ export async function runGoldPipeline(args: RunGoldPipelineArgs): Promise<GoldPi
     const record = await runTeacherTrajectory({
       mainConfig: args.mainConfig,
       teacherModel: args.teacherModel,
-      userPrompt: buildPromptWithDatasetHint(task, args.workspace),
+      userPrompt: buildUserPrompt(task),
       taskId: task.taskId,
       runId,
       sourcePipeline: 'gold',

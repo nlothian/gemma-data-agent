@@ -1,19 +1,20 @@
 /**
- * Workspace = a user-picked local directory used by the data-gen mode for
- * inputs (datasets, task corpora) and outputs (sft.jsonl, dpo.jsonl, run logs).
+ * OutputDir = a user-picked local directory used by data-gen mode for
+ * generated artefacts only: tasks/, trajectories.jsonl, dpo.jsonl.
+ *
+ * Read-write. Distinct from the production "sandbox" directory (input
+ * datasets), which the data-gen tab reads via `sandboxStore`.
  *
  * The directory handle survives across reloads via IndexedDB. On every
- * resume we re-verify permission, since browsers may downgrade granted
- * permissions silently.
+ * resume we check permission state but don't auto-prompt — caller decides
+ * when to ask.
  */
 
 const DB_NAME = 'haw.datagen.v1';
 const STORE = 'handles';
-const HANDLE_KEY = 'workspaceRoot';
+const HANDLE_KEY = 'outputDirRoot';
 
 type AnyDirHandle = FileSystemDirectoryHandle & {
-  // Chromium-only permission methods — typed loosely because lib.dom.d.ts
-  // hasn't standardised them.
   queryPermission?: (opts: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
   requestPermission?: (opts: { mode: 'read' | 'readwrite' }) => Promise<PermissionState>;
 };
@@ -69,7 +70,7 @@ async function idbDelete(key: string): Promise<void> {
   }
 }
 
-export interface Workspace {
+export interface OutputDir {
   root: FileSystemDirectoryHandle;
   name: string;
 }
@@ -80,9 +81,9 @@ export class FsAccessUnsupportedError extends Error {
   }
 }
 
-export class WorkspacePermissionDeniedError extends Error {
+export class OutputDirPermissionDeniedError extends Error {
   constructor() {
-    super('Permission to read/write the workspace directory was denied.');
+    super('Permission to read/write the output directory was denied.');
   }
 }
 
@@ -98,50 +99,40 @@ async function ensurePermission(handle: AnyDirHandle): Promise<void> {
   let state = await handle.queryPermission(opts);
   if (state === 'granted') return;
   state = await handle.requestPermission(opts);
-  if (state !== 'granted') throw new WorkspacePermissionDeniedError();
+  if (state !== 'granted') throw new OutputDirPermissionDeniedError();
 }
 
-export async function pickWorkspace(): Promise<Workspace> {
+export async function pickOutputDirectory(): Promise<OutputDir> {
   ensureFsApi();
   const handle = (await (window as unknown as {
     showDirectoryPicker: (opts?: { mode?: 'read' | 'readwrite'; id?: string }) => Promise<FileSystemDirectoryHandle>;
-  }).showDirectoryPicker({ mode: 'readwrite', id: 'haw-datagen' })) as AnyDirHandle;
+  }).showDirectoryPicker({ mode: 'readwrite', id: 'haw-datagen-output' })) as AnyDirHandle;
   await ensurePermission(handle);
   await idbPut(HANDLE_KEY, handle);
   return { root: handle, name: handle.name };
 }
 
-/** Restore a previously picked workspace, if one exists and permission is still granted. */
-export async function restoreWorkspace(): Promise<Workspace | null> {
+export async function restoreOutputDirectory(): Promise<OutputDir | null> {
   if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) return null;
   const handle = await idbGet<AnyDirHandle>(HANDLE_KEY);
   if (!handle) return null;
-  // Permission may need re-granting after a reload — but we DON'T prompt
-  // here. The caller decides when to ask. Just check current state.
-  if (handle.queryPermission) {
-    const state = await handle.queryPermission({ mode: 'readwrite' });
-    if (state !== 'granted') {
-      return { root: handle, name: handle.name };
-    }
-  }
   return { root: handle, name: handle.name };
 }
 
-/** Re-prompt for permission on a previously-restored workspace. */
-export async function reauthorize(workspace: Workspace): Promise<void> {
-  await ensurePermission(workspace.root as AnyDirHandle);
+export async function reauthorize(outputDir: OutputDir): Promise<void> {
+  await ensurePermission(outputDir.root as AnyDirHandle);
 }
 
-export async function clearWorkspace(): Promise<void> {
+export async function clearOutputDirectory(): Promise<void> {
   await idbDelete(HANDLE_KEY);
 }
 
-/** Get-or-create a subdirectory under the workspace root. */
+/** Get-or-create a subdirectory under the output-dir root. */
 export async function ensureSubdir(
-  workspace: Workspace,
+  outputDir: OutputDir,
   ...segments: string[]
 ): Promise<FileSystemDirectoryHandle> {
-  let dir: FileSystemDirectoryHandle = workspace.root;
+  let dir: FileSystemDirectoryHandle = outputDir.root;
   for (const seg of segments) {
     dir = await dir.getDirectoryHandle(seg, { create: true });
   }
@@ -150,13 +141,13 @@ export async function ensureSubdir(
 
 /** Open a writable JSONL appender — flushes after every line. */
 export async function openJsonlAppender(
-  workspace: Workspace,
+  outputDir: OutputDir,
   relativePath: string,
 ): Promise<JsonlAppender> {
   const parts = relativePath.split('/').filter(Boolean);
   const fileName = parts.pop();
   if (!fileName) throw new Error(`Invalid JSONL path: ${relativePath}`);
-  const dir = await ensureSubdir(workspace, ...parts);
+  const dir = await ensureSubdir(outputDir, ...parts);
   const file = await dir.getFileHandle(fileName, { create: true });
   return new JsonlAppender(file);
 }
@@ -175,7 +166,7 @@ export class JsonlAppender {
     this.offset = file.size;
   }
 
-  /** Append one record as a JSON line. fsync via close() each call — slow but crash-safe. */
+  /** Append one record as a JSON line. fsync via close() each call — crash-safe. */
   async append(record: unknown): Promise<void> {
     if (this.offset === 0) await this.init();
     const writable = await this.fileHandle.createWritable({ keepExistingData: true });
@@ -188,21 +179,4 @@ export class JsonlAppender {
       await writable.close();
     }
   }
-}
-
-/** Resolve a dataset reference (relative path) to a Blob URL the agent can LoadData from. */
-export async function datasetBlobUrl(
-  workspace: Workspace,
-  relativePath: string,
-): Promise<string> {
-  const parts = relativePath.split('/').filter(Boolean);
-  const fileName = parts.pop();
-  if (!fileName) throw new Error(`Invalid dataset path: ${relativePath}`);
-  let dir: FileSystemDirectoryHandle = workspace.root;
-  for (const seg of parts) {
-    dir = await dir.getDirectoryHandle(seg, { create: false });
-  }
-  const handle = await dir.getFileHandle(fileName, { create: false });
-  const file = await handle.getFile();
-  return URL.createObjectURL(file);
 }

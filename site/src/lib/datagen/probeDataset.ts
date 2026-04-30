@@ -1,10 +1,12 @@
 /**
- * Probe a workspace-local dataset to produce a human-readable schema
+ * Probe a sandbox-local dataset to produce a human-readable schema
  * summary (column names, types, row count, sample rows). Uses DuckDB-WASM
  * directly via `registerFileBufferOnly` so the probe does NOT pollute the
- * input registry — important because the data-gen UI shouldn't add stuff
- * to the agent's tool-visible registry just because the user clicked a
- * file in the picker.
+ * input registry.
+ *
+ * Resolves paths via the production `sandboxStore.resolveFileHandle` —
+ * same plumbing the live agent uses. Sandbox is read-only; the data-gen
+ * UI only needs to read schemas.
  */
 import {
   arrowTableToTabularResult,
@@ -12,7 +14,7 @@ import {
   registerFileBufferOnly,
   dropVirtualFile,
 } from '../duckdb';
-import { type Workspace } from './workspace';
+import { resolveFileHandle } from '../sandboxStore';
 
 export interface SchemaColumn {
   name: string;
@@ -25,7 +27,6 @@ export interface DatasetProbe {
   rowCount: number;
   columns: SchemaColumn[];
   sampleRows: unknown[][];
-  /** A pre-formatted summary suitable to drop into the task-generator prompt. */
   formattedSummary: string;
 }
 
@@ -79,28 +80,12 @@ function formatValue(v: unknown): string {
   return String(v);
 }
 
-async function fileFor(
-  workspace: Workspace,
-  relativePath: string,
-): Promise<File> {
-  const parts = relativePath.split('/').filter(Boolean);
-  const fileName = parts.pop();
-  if (!fileName) throw new Error(`Invalid path: ${relativePath}`);
-  let dir: FileSystemDirectoryHandle = workspace.root;
-  for (const seg of parts) {
-    dir = await dir.getDirectoryHandle(seg, { create: false });
-  }
-  const handle = await dir.getFileHandle(fileName, { create: false });
-  return handle.getFile();
-}
-
 export async function probeDataset(
-  workspace: Workspace,
-  relativePath: string,
+  sandboxPath: string,
   sampleN = 5,
 ): Promise<DatasetProbe> {
-  const dot = relativePath.lastIndexOf('.');
-  const ext = dot < 0 ? '' : relativePath.slice(dot + 1).toLowerCase();
+  const dot = sandboxPath.lastIndexOf('.');
+  const ext = dot < 0 ? '' : sandboxPath.slice(dot + 1).toLowerCase();
   if (!['csv', 'tsv', 'parquet', 'json', 'jsonl'].includes(ext)) {
     throw new UnsupportedFormatError(
       `Probe doesn't support .${ext} (only csv/tsv/parquet/json/jsonl).`,
@@ -108,7 +93,8 @@ export async function probeDataset(
   }
   const format = ext as DatasetProbe['format'];
 
-  const file = await fileFor(workspace, relativePath);
+  const handle = await resolveFileHandle(sandboxPath);
+  const file = await handle.getFile();
   const buffer = new Uint8Array(await file.arrayBuffer());
   const virtualPath = `__datagen_probe__/${Date.now()}.${ext}`;
   await registerFileBufferOnly(virtualPath, buffer);
@@ -139,7 +125,7 @@ export async function probeDataset(
     const sample = arrowTableToTabularResult(sampleTable);
     const sampleRows = sample.rows;
 
-    const partial = { path: relativePath, format, rowCount, columns, sampleRows };
+    const partial = { path: sandboxPath, format, rowCount, columns, sampleRows };
     return { ...partial, formattedSummary: formatSummary(partial) };
   } finally {
     await dropVirtualFile(virtualPath);

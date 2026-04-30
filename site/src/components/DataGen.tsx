@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  type Workspace,
-  pickWorkspace,
-  restoreWorkspace,
-  reauthorize,
-  clearWorkspace,
+  type OutputDir,
+  pickOutputDirectory,
+  restoreOutputDirectory,
+  reauthorize as reauthorizeOutput,
+  clearOutputDirectory,
   openJsonlAppender,
-} from '../lib/datagen/workspace';
+} from '../lib/datagen/outputDir';
 import {
   runTeacherTrajectory,
   resetRuntimeForTrajectory,
@@ -26,9 +26,9 @@ import {
   type TaskGenFlavor,
   type GenerateTasksResult,
 } from '../lib/datagen/taskGen';
-import { listDatasets, type DatasetEntry } from '../lib/datagen/datasetBrowser';
 import { probeDataset, UnsupportedFormatError } from '../lib/datagen/probeDataset';
 import { useLLMConfig } from '../hooks/useLLMConfig';
+import useSandboxConfig from '../hooks/useSandboxConfig';
 import { setMode as setToolGateMode } from '../lib/toolDebugger';
 import {
   LOCAL_GEMMA_MODELS,
@@ -36,9 +36,9 @@ import {
   type LocalGemmaId,
 } from '../lib/localLlm/models';
 
-type WorkspaceState =
+type OutputDirState =
   | { kind: 'idle' }
-  | { kind: 'restored'; workspace: Workspace }
+  | { kind: 'restored'; outputDir: OutputDir }
   | { kind: 'error'; message: string };
 
 type RunState =
@@ -49,11 +49,15 @@ type RunState =
 
 const DEFAULT_TEACHER_MODEL = 'anthropic/claude-sonnet-4.5';
 
+const DATA_EXTENSIONS = new Set(['csv', 'tsv', 'parquet', 'json', 'jsonl', 'xlsx']);
+
 export default function DataGen() {
   const hasFsAccess = typeof window !== 'undefined' && 'showDirectoryPicker' in window;
-  const [wsState, setWsState] = useState<WorkspaceState>({ kind: 'idle' });
   const llm = useLLMConfig();
+  const sandbox = useSandboxConfig();
   const hasOpenrouterKey = Boolean(llm.config.apiKeys['https://openrouter.ai/api/v1']);
+
+  const [outState, setOutState] = useState<OutputDirState>({ kind: 'idle' });
 
   const [teacherModel, setTeacherModel] = useState(DEFAULT_TEACHER_MODEL);
   const [userPrompt, setUserPrompt] = useState('');
@@ -88,48 +92,67 @@ export default function DataGen() {
   const [tgDataset, setTgDataset] = useState<string>('');
   const [tgSchema, setTgSchema] = useState<string>('');
   const [tgCount, setTgCount] = useState<string>('20');
-  const [datasets, setDatasets] = useState<DatasetEntry[]>([]);
-  const [datasetsLoading, setDatasetsLoading] = useState(false);
-  const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
 
+  // Restore output dir handle on mount.
   useEffect(() => {
     if (!hasFsAccess) return;
-    restoreWorkspace()
-      .then((ws) => {
-        if (ws) setWsState({ kind: 'restored', workspace: ws });
+    restoreOutputDirectory()
+      .then((od) => {
+        if (od) setOutState({ kind: 'restored', outputDir: od });
       })
-      .catch((err: unknown) => setWsState({ kind: 'error', message: errorMessage(err) }));
+      .catch((err: unknown) => setOutState({ kind: 'error', message: errorMessage(err) }));
   }, [hasFsAccess]);
 
-  const onPick = useCallback(async () => {
+  // Filter sandbox files to data-loadable extensions for the dataset picker.
+  const datasets = useMemo(
+    () =>
+      sandbox.files
+        .filter((f) => DATA_EXTENSIONS.has(f.ext))
+        .map((f) => ({ path: f.relativePath, size: f.sizeBytes })),
+    [sandbox.files],
+  );
+
+  const sandboxReady = sandbox.status === 'permitted';
+  const outputReady = outState.kind === 'restored';
+  const allReady = sandboxReady && outputReady && hasOpenrouterKey;
+
+  // ---- Output dir handlers ----
+
+  const onPickOutput = useCallback(async () => {
     try {
-      const ws = await pickWorkspace();
-      setWsState({ kind: 'restored', workspace: ws });
+      const od = await pickOutputDirectory();
+      setOutState({ kind: 'restored', outputDir: od });
     } catch (err) {
       if (isAbortError(err)) return;
-      setWsState({ kind: 'error', message: errorMessage(err) });
+      setOutState({ kind: 'error', message: errorMessage(err) });
     }
   }, []);
 
-  const onClear = useCallback(async () => {
-    await clearWorkspace();
-    setWsState({ kind: 'idle' });
+  const onClearOutput = useCallback(async () => {
+    await clearOutputDirectory();
+    setOutState({ kind: 'idle' });
   }, []);
 
-  const onReauth = useCallback(async () => {
-    if (wsState.kind !== 'restored') return;
+  const onReauthOutput = useCallback(async () => {
+    if (outState.kind !== 'restored') return;
     try {
-      await reauthorize(wsState.workspace);
+      await reauthorizeOutput(outState.outputDir);
     } catch (err) {
-      setWsState({ kind: 'error', message: errorMessage(err) });
+      setOutState({ kind: 'error', message: errorMessage(err) });
     }
-  }, [wsState]);
+  }, [outState]);
+
+  // ---- One-shot test ----
 
   const onRun = useCallback(async () => {
-    if (wsState.kind !== 'restored') {
-      setRunState({ kind: 'error', message: 'Pick a workspace first.' });
+    if (!sandboxReady) {
+      setRunState({ kind: 'error', message: 'Pick a sandbox directory first.' });
+      return;
+    }
+    if (!outputReady) {
+      setRunState({ kind: 'error', message: 'Pick an output directory first.' });
       return;
     }
     if (!userPrompt.trim()) {
@@ -139,8 +162,7 @@ export default function DataGen() {
     if (!hasOpenrouterKey) {
       setRunState({
         kind: 'error',
-        message:
-          'No OpenRouter API key found. Open the main app Settings, add an OpenRouter key, then come back.',
+        message: 'No OpenRouter API key found. Add one in main app Settings.',
       });
       return;
     }
@@ -148,8 +170,6 @@ export default function DataGen() {
     const turns: TrajectoryTurn[] = [];
     setRunState({ kind: 'running', turns });
 
-    // Tool dispatch is gated by Step/Play in the production chat UI. Data-gen
-    // needs it open — flip to running before any tool call.
     setToolGateMode('running');
     await resetRuntimeForTrajectory();
 
@@ -169,17 +189,19 @@ export default function DataGen() {
           setRunState({ kind: 'running', turns: [...turns] });
         },
       });
-      const appender = await openJsonlAppender(wsState.workspace, 'output/trajectories.jsonl');
+      const appender = await openJsonlAppender(
+        (outState as { outputDir: OutputDir }).outputDir,
+        'trajectories.jsonl',
+      );
       await appender.append(record);
       setRunState({ kind: 'done', record });
     } catch (err) {
       setRunState({ kind: 'error', message: errorMessage(err) });
     }
-  }, [wsState, llm.config, teacherModel, userPrompt, hasOpenrouterKey]);
+  }, [outState, llm.config, teacherModel, userPrompt, hasOpenrouterKey, sandboxReady, outputReady]);
 
   const onRunGold = useCallback(async () => {
-    if (wsState.kind !== 'restored') return;
-    if (!hasOpenrouterKey) return;
+    if (!allReady || outState.kind !== 'restored') return;
     const cap = goldMaxTasks.trim() === '' ? undefined : parseInt(goldMaxTasks, 10);
     if (cap !== undefined && (!Number.isFinite(cap) || cap <= 0)) {
       setGoldState({ kind: 'error', message: 'Max tasks must be a positive integer or blank.' });
@@ -192,7 +214,7 @@ export default function DataGen() {
     setGoldState({ kind: 'running', progress: initial, abort });
     try {
       const result = await runGoldPipeline({
-        workspace: wsState.workspace,
+        outputDir: outState.outputDir,
         mainConfig: llm.config,
         teacherModel,
         maxTasks: cap,
@@ -205,11 +227,10 @@ export default function DataGen() {
     } catch (err) {
       setGoldState({ kind: 'error', message: errorMessage(err) });
     }
-  }, [wsState, llm.config, teacherModel, goldMaxTasks, hasOpenrouterKey]);
+  }, [outState, llm.config, teacherModel, goldMaxTasks, allReady]);
 
   const onRunRejection = useCallback(async () => {
-    if (wsState.kind !== 'restored') return;
-    if (!hasOpenrouterKey) return;
+    if (!allReady || outState.kind !== 'restored') return;
     const N = parseInt(rolloutsPerTask, 10);
     if (!Number.isFinite(N) || N <= 0) {
       setRejState({ kind: 'error', message: 'Rollouts per task must be a positive integer.' });
@@ -227,7 +248,7 @@ export default function DataGen() {
     setRejState({ kind: 'running', progress: initial, abort });
     try {
       const result = await runRejectionPipeline({
-        workspace: wsState.workspace,
+        outputDir: outState.outputDir,
         mainConfig: llm.config,
         studentModelId,
         judgeModel,
@@ -242,35 +263,17 @@ export default function DataGen() {
     } catch (err) {
       setRejState({ kind: 'error', message: errorMessage(err) });
     }
-  }, [wsState, llm.config, studentModelId, judgeModel, rolloutsPerTask, rejMaxTasks, hasOpenrouterKey]);
+  }, [outState, llm.config, studentModelId, judgeModel, rolloutsPerTask, rejMaxTasks, allReady]);
 
-  const refreshDatasets = useCallback(async () => {
-    if (wsState.kind !== 'restored') return;
-    setDatasetsLoading(true);
-    setDatasetsError(null);
-    try {
-      const list = await listDatasets(wsState.workspace);
-      setDatasets(list);
-    } catch (err) {
-      setDatasetsError(errorMessage(err));
-    } finally {
-      setDatasetsLoading(false);
-    }
-  }, [wsState]);
-
-  // Auto-list datasets when a workspace becomes available.
-  useEffect(() => {
-    if (wsState.kind === 'restored') void refreshDatasets();
-    else setDatasets([]);
-  }, [wsState, refreshDatasets]);
+  // ---- Dataset picker (reads from sandbox) ----
 
   const onSelectDataset = useCallback(async (path: string) => {
     setTgDataset(path);
     setProbeError(null);
-    if (!path || wsState.kind !== 'restored') return;
+    if (!path || !sandboxReady) return;
     setProbing(true);
     try {
-      const probe = await probeDataset(wsState.workspace, path);
+      const probe = await probeDataset(path);
       setTgSchema(probe.formattedSummary);
     } catch (err) {
       if (err instanceof UnsupportedFormatError) {
@@ -281,11 +284,10 @@ export default function DataGen() {
     } finally {
       setProbing(false);
     }
-  }, [wsState]);
+  }, [sandboxReady]);
 
   const onGenerateTasks = useCallback(async () => {
-    if (wsState.kind !== 'restored') return;
-    if (!hasOpenrouterKey) return;
+    if (!allReady || outState.kind !== 'restored') return;
     if (!tgDataset.trim() || !tgSchema.trim()) {
       setTgState({ kind: 'error', message: 'Provide dataset path and schema summary.' });
       return;
@@ -298,7 +300,7 @@ export default function DataGen() {
     setTgState({ kind: 'running' });
     try {
       const result = await generateTasks({
-        workspace: wsState.workspace,
+        outputDir: outState.outputDir,
         mainConfig: llm.config,
         teacherModel,
         flavor: tgFlavor,
@@ -309,42 +311,76 @@ export default function DataGen() {
     } catch (err) {
       setTgState({ kind: 'error', message: errorMessage(err) });
     }
-  }, [wsState, llm.config, teacherModel, tgFlavor, tgDataset, tgSchema, tgCount, hasOpenrouterKey]);
+  }, [outState, llm.config, teacherModel, tgFlavor, tgDataset, tgSchema, tgCount, allReady]);
 
   return (
     <section style={{ padding: '2rem', fontFamily: "'IBM Plex Sans', sans-serif", maxWidth: 860 }}>
       <h1 style={{ margin: '0 0 0.25rem' }}>haw data generation</h1>
       <p style={{ color: '#666', margin: '0 0 2rem' }}>
         Developer-only mode for building Gemma fine-tuning datasets. Runs the
-        production agent loop against a local workspace directory and writes
-        SFT / DPO JSONL.
+        production agent loop against a local sandbox (input datasets) and
+        writes JSONL into a separate output directory.
       </p>
 
-      <Card title="Workspace">
+      <Card title="Sandbox (input — read-only)">
+        <p style={{ margin: '0 0 0.75rem', color: '#444' }}>
+          Holds your input datasets. Same plumbing as the live agent —
+          the directory you pick here is the directory the agent's{' '}
+          <code>LoadData</code> resolves against. Picking here also
+          updates the sandbox the live agent uses.
+        </p>
         {!hasFsAccess && (
           <p style={errStyle}>File System Access API is not available. Use Chrome, Edge, Brave, or Arc.</p>
         )}
-        {hasFsAccess && wsState.kind === 'idle' && (
+        {sandbox.status === 'unset' && (
+          <button style={btnStyle} onClick={sandbox.chooseDirectory}>Pick sandbox…</button>
+        )}
+        {sandbox.status === 'permission-denied' && (
           <>
-            <p style={{ margin: '0 0 0.75rem' }}>
-              Pick a directory the harness can read datasets from and write JSONL outputs to.
-            </p>
-            <button style={btnStyle} onClick={onPick}>Pick workspace…</button>
+            <p style={errStyle}>Permission denied for <code>{sandbox.directoryName}</code>.</p>
+            <button style={btnStyle} onClick={sandbox.reAuthorise}>Re-grant permission</button>
           </>
         )}
-        {hasFsAccess && wsState.kind === 'restored' && (
+        {sandbox.status === 'permitted' && (
           <>
-            <p style={{ margin: '0 0 0.75rem' }}>
-              Active: <code>{wsState.workspace.name}</code>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              Active: <code>{sandbox.directoryName}</code> ·{' '}
+              {sandbox.files.length} file{sandbox.files.length === 1 ? '' : 's'} ({datasets.length} loadable)
             </p>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button style={btnStyle} onClick={onPick}>Switch…</button>
-              <button style={{ ...btnStyle, ...btnSecondary }} onClick={onReauth}>Re-grant permission</button>
-              <button style={{ ...btnStyle, ...btnSecondary }} onClick={onClear}>Forget</button>
+              <button style={btnStyle} onClick={sandbox.chooseDirectory}>Switch…</button>
+              <button style={{ ...btnStyle, ...btnSecondary }} onClick={sandbox.refreshFiles}>↻ Refresh</button>
+              <button style={{ ...btnStyle, ...btnSecondary }} onClick={sandbox.clearDirectory}>Forget</button>
             </div>
           </>
         )}
-        {wsState.kind === 'error' && <p style={errStyle}>{wsState.message}</p>}
+      </Card>
+
+      <Card title="Output directory (read-write)">
+        <p style={{ margin: '0 0 0.75rem', color: '#444' }}>
+          Holds generated artefacts: <code>tasks/*.jsonl</code>,{' '}
+          <code>trajectories.jsonl</code>, <code>dpo.jsonl</code>.
+          Separate from the sandbox so input data stays read-only.
+        </p>
+        {!hasFsAccess && (
+          <p style={errStyle}>File System Access API is not available.</p>
+        )}
+        {hasFsAccess && outState.kind === 'idle' && (
+          <button style={btnStyle} onClick={onPickOutput}>Pick output directory…</button>
+        )}
+        {hasFsAccess && outState.kind === 'restored' && (
+          <>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              Active: <code>{outState.outputDir.name}</code>
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button style={btnStyle} onClick={onPickOutput}>Switch…</button>
+              <button style={{ ...btnStyle, ...btnSecondary }} onClick={onReauthOutput}>Re-grant permission</button>
+              <button style={{ ...btnStyle, ...btnSecondary }} onClick={onClearOutput}>Forget</button>
+            </div>
+          </>
+        )}
+        {outState.kind === 'error' && <p style={errStyle}>{outState.message}</p>}
       </Card>
 
       <Card title="Teacher (OpenRouter)">
@@ -372,7 +408,7 @@ export default function DataGen() {
           <textarea
             value={userPrompt}
             onChange={(e) => setUserPrompt(e.target.value)}
-            placeholder="e.g. Load https://example.com/sales.csv and tell me the top 5 product categories by revenue."
+            placeholder="e.g. Load datasets/iris/Iris.csv and tell me the median petal length."
             style={{ ...inputStyle, minHeight: 80, fontFamily: 'inherit' }}
           />
         </label>
@@ -380,7 +416,7 @@ export default function DataGen() {
           <button
             style={btnStyle}
             onClick={onRun}
-            disabled={runState.kind === 'running'}
+            disabled={runState.kind === 'running' || !allReady}
           >
             {runState.kind === 'running' ? 'Running…' : 'Run'}
           </button>
@@ -397,7 +433,7 @@ export default function DataGen() {
               {' · '}
               {(runState.record.durationMs / 1000).toFixed(1)}s
               {' · '}
-              appended to <code>output/trajectories.jsonl</code>
+              appended to <code>trajectories.jsonl</code>
             </p>
             <TurnList turns={runState.record.turns} />
           </>
@@ -407,7 +443,7 @@ export default function DataGen() {
 
       <Card title="Generate task corpus (teacher → tasks/*.jsonl)">
         <p style={{ margin: '0 0 0.75rem', color: '#444' }}>
-          Have the teacher generate a batch of user prompts for a dataset.
+          Have the teacher generate a batch of user prompts for a sandbox dataset.
           <strong> Normal</strong> mixes lookup / aggregate / plot tasks.
           <strong> Adversarial</strong> targets known weak spots (schema
           traps, false premises, refusal probes).
@@ -435,15 +471,15 @@ export default function DataGen() {
           </label>
         </div>
         <label style={labelStyle}>
-          Dataset
+          Dataset (from sandbox)
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
             <select
               value={tgDataset}
               onChange={(e) => onSelectDataset(e.target.value)}
               style={{ ...inputStyle, flex: 1, marginTop: 0 }}
-              disabled={datasetsLoading || datasets.length === 0}
+              disabled={!sandboxReady || datasets.length === 0}
             >
-              <option value="">{datasetsLoading ? 'Reading workspace…' : datasets.length === 0 ? 'No data files in workspace' : '— pick a file —'}</option>
+              <option value="">{!sandboxReady ? 'Pick a sandbox first' : datasets.length === 0 ? 'No data files in sandbox' : '— pick a file —'}</option>
               {datasets.map((d) => (
                 <option key={d.path} value={d.path}>
                   {d.path} ({formatBytes(d.size)})
@@ -453,15 +489,14 @@ export default function DataGen() {
             <button
               type="button"
               style={{ ...btnStyle, ...btnSecondary }}
-              onClick={refreshDatasets}
-              disabled={datasetsLoading || wsState.kind !== 'restored'}
-              title="Re-read the workspace directory"
+              onClick={sandbox.refreshFiles}
+              disabled={!sandboxReady}
+              title="Re-read the sandbox directory"
             >
               ↻
             </button>
           </div>
         </label>
-        {datasetsError && <p style={errStyle}>{datasetsError}</p>}
         <label style={labelStyle}>
           Schema summary {probing && <span style={{ color: '#888' }}>(probing via DuckDB…)</span>}
           <textarea
@@ -475,7 +510,7 @@ export default function DataGen() {
         <div style={{ marginTop: '0.75rem' }}>
           <button
             style={btnStyle}
-            disabled={tgState.kind === 'running' || wsState.kind !== 'restored' || !hasOpenrouterKey}
+            disabled={tgState.kind === 'running' || !allReady}
             onClick={onGenerateTasks}
           >
             {tgState.kind === 'running' ? 'Generating…' : 'Generate tasks'}
@@ -492,9 +527,9 @@ export default function DataGen() {
 
       <Card title="Gold pipeline (corpus → trajectories.jsonl)">
         <p style={{ margin: '0 0 0.75rem', color: '#444' }}>
-          Reads <code>tasks/*.jsonl</code> from the workspace, runs the
-          teacher loop on each task, appends to{' '}
-          <code>output/trajectories.jsonl</code>. Skips taskIds already
+          Reads <code>tasks/*.jsonl</code> from the output directory, runs
+          the teacher loop on each task, appends to{' '}
+          <code>trajectories.jsonl</code>. Skips taskIds already
           present so the run is resumable.
         </p>
         <label style={labelStyle}>
@@ -510,7 +545,7 @@ export default function DataGen() {
         <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
           <button
             style={btnStyle}
-            disabled={goldState.kind === 'running' || wsState.kind !== 'restored' || !hasOpenrouterKey}
+            disabled={goldState.kind === 'running' || !allReady}
             onClick={onRunGold}
           >
             {goldState.kind === 'running' ? 'Running…' : 'Run gold pipeline'}
@@ -580,7 +615,7 @@ export default function DataGen() {
         <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
           <button
             style={btnStyle}
-            disabled={rejState.kind === 'running' || wsState.kind !== 'restored' || !hasOpenrouterKey}
+            disabled={rejState.kind === 'running' || !allReady}
             onClick={onRunRejection}
           >
             {rejState.kind === 'running' ? 'Running…' : 'Run rejection sampling'}

@@ -1,14 +1,14 @@
 /**
  * Rejection-sampling pipeline:
  *  1. For each task in the corpus, look up its gold final answer (from
- *     output/trajectories.jsonl, source 'gold').
+ *     <output_dir>/trajectories.jsonl, source 'gold').
  *  2. Run N student rollouts via the production local-Gemma path.
  *  3. Score each rollout: parse-OK + no tool errors + finished + judge says
  *     final answer is correct → success; otherwise the failure reason.
  *  4. Build DPO pairs (de-duplicated cross product of distinct successes
- *     and failures), append to output/dpo.jsonl.
+ *     and failures), append to <output_dir>/dpo.jsonl.
  *  5. Append every student rollout (success or fail) to
- *     output/trajectories.jsonl with sourcePipeline='rejection'.
+ *     <output_dir>/trajectories.jsonl with sourcePipeline='rejection-*'.
  */
 import { type LLMConfig } from '../../types/llm';
 import { setMode as setToolGateMode } from '../toolDebugger';
@@ -16,6 +16,7 @@ import { type LocalGemmaId } from '../localLlm/models';
 import { AGENT_SYSTEM_PROMPT } from '../agentTools';
 import {
   readCorpus,
+  buildUserPrompt,
   type CorpusTask,
 } from './corpus';
 import { resetRuntimeForTrajectory } from './trajectory';
@@ -31,8 +32,8 @@ import {
 } from './dpo';
 import {
   openJsonlAppender,
-  type Workspace,
-} from './workspace';
+  type OutputDir,
+} from './outputDir';
 
 export interface RejectionPipelineProgress {
   total: number;
@@ -46,14 +47,12 @@ export interface RejectionPipelineProgress {
 }
 
 export interface RunRejectionPipelineArgs {
-  workspace: Workspace;
+  outputDir: OutputDir;
   mainConfig: LLMConfig;
   studentModelId: LocalGemmaId;
   judgeModel: string;
   rolloutsPerTask: number;
-  /** Hard cap on tasks; useful for smoke runs. */
   maxTasks?: number;
-  /** Filter tasks before running. */
   filter?: (task: CorpusTask) => boolean;
   signal?: AbortSignal;
   onProgress?: (p: RejectionPipelineProgress) => void;
@@ -63,13 +62,10 @@ interface GoldAnswerIndex {
   byTaskId: Map<string, string>;
 }
 
-async function readGoldAnswers(workspace: Workspace): Promise<GoldAnswerIndex> {
+async function readGoldAnswers(outputDir: OutputDir): Promise<GoldAnswerIndex> {
   const byTaskId = new Map<string, string>();
-  const parts = ['output', 'trajectories.jsonl'];
-  let dir: FileSystemDirectoryHandle = workspace.root;
   try {
-    dir = await dir.getDirectoryHandle(parts[0], { create: false });
-    const handle = await dir.getFileHandle(parts[1], { create: false });
+    const handle = await outputDir.root.getFileHandle('trajectories.jsonl', { create: false });
     const file = await handle.getFile();
     const text = await file.text();
     for (const line of text.split('\n')) {
@@ -110,12 +106,10 @@ async function readGoldAnswers(workspace: Workspace): Promise<GoldAnswerIndex> {
   return { byTaskId };
 }
 
-async function readAttemptedRejectionTaskIds(workspace: Workspace): Promise<Set<string>> {
+async function readAttemptedRejectionTaskIds(outputDir: OutputDir): Promise<Set<string>> {
   const seen = new Set<string>();
-  let dir: FileSystemDirectoryHandle = workspace.root;
   try {
-    dir = await dir.getDirectoryHandle('output', { create: false });
-    const handle = await dir.getFileHandle('trajectories.jsonl', { create: false });
+    const handle = await outputDir.root.getFileHandle('trajectories.jsonl', { create: false });
     const file = await handle.getFile();
     const text = await file.text();
     for (const line of text.split('\n')) {
@@ -155,10 +149,10 @@ function classifyFailure(
 export async function runRejectionPipeline(
   args: RunRejectionPipelineArgs,
 ): Promise<RejectionPipelineProgress> {
-  const corpus = await readCorpus(args.workspace);
+  const corpus = await readCorpus(args.outputDir);
   const filtered = args.filter ? corpus.filter(args.filter) : corpus;
-  const goldAnswers = await readGoldAnswers(args.workspace);
-  const attempted = await readAttemptedRejectionTaskIds(args.workspace);
+  const goldAnswers = await readGoldAnswers(args.outputDir);
+  const attempted = await readAttemptedRejectionTaskIds(args.outputDir);
 
   // We can only score a task whose gold final answer we know.
   const queue = filtered.filter(
@@ -180,12 +174,12 @@ export async function runRejectionPipeline(
   setToolGateMode('running');
 
   const trajectoriesAppender = await openJsonlAppender(
-    args.workspace,
-    'output/trajectories.jsonl',
+    args.outputDir,
+    'trajectories.jsonl',
   );
   const dpoAppender = await openJsonlAppender(
-    args.workspace,
-    'output/dpo.jsonl',
+    args.outputDir,
+    'dpo.jsonl',
   );
 
   const runId = new Date().toISOString();
@@ -209,7 +203,7 @@ export async function runRejectionPipeline(
       const result = await runStudentRollout({
         mainConfig: args.mainConfig,
         studentModelId: args.studentModelId,
-        userPrompt: task.prompt,
+        userPrompt: buildUserPrompt(task),
         taskId: task.taskId,
         runId,
         rolloutIndex: i,

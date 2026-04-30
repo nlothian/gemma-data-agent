@@ -11,7 +11,7 @@
  */
 import { type LLMConfig } from '../../types/llm';
 import { callTeacher } from './teacher';
-import { type Workspace, openJsonlAppender } from './workspace';
+import { type OutputDir, openJsonlAppender } from './outputDir';
 import normalPrompt from './prompts/teacherTaskGen.md?raw';
 import adversarialPrompt from './prompts/adversarialTaskGen.md?raw';
 
@@ -25,7 +25,7 @@ export interface DatasetDescription {
 }
 
 export interface GenerateTasksArgs {
-  workspace: Workspace;
+  outputDir: OutputDir;
   mainConfig: LLMConfig;
   teacherModel: string;
   flavor: TaskGenFlavor;
@@ -88,7 +88,7 @@ export async function generateTasks(args: GenerateTasksArgs): Promise<GenerateTa
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const outputName = args.outputName ?? `${args.flavor}-${stamp}.jsonl`;
-  const appender = await openJsonlAppender(args.workspace, `tasks/${outputName}`);
+  const appender = await openJsonlAppender(args.outputDir, `tasks/${outputName}`);
 
   const tasks: GeneratedTask[] = [];
   for (const item of parsed as unknown[]) {

@@ -1,18 +1,18 @@
 /**
- * Task corpus = a JSONL file under workspace/tasks/ where each line is one
- * task to run through a pipeline. Format:
+ * Task corpus = a JSONL file under <output_dir>/tasks/ where each line is
+ * one task to run through a pipeline. Format:
  *
  *   {"taskId": "iris-001", "prompt": "Plot histogram of sepal_length",
  *    "dataset": "datasets/iris.csv", "difficulty": "easy"}
  *
  * - taskId: stable identifier; used for de-duplication across runs.
  * - prompt: the user-facing question.
- * - dataset: optional relative path under workspace/, surfaced to the
- *   teacher / student in the prompt so it knows what to LoadData. The
- *   harness does NOT auto-load it; that's the model's job.
+ * - dataset: optional sandbox-relative path, surfaced to the model so it
+ *   knows what to LoadData. The harness does NOT auto-load it; that's the
+ *   model's job. Resolves against the production sandbox.
  * - difficulty: optional metadata for filtering / stratified sampling.
  */
-import { type Workspace, ensureSubdir, openJsonlAppender } from './workspace';
+import { type OutputDir, ensureSubdir, openJsonlAppender } from './outputDir';
 
 export interface CorpusTask {
   taskId: string;
@@ -54,12 +54,12 @@ function parseTaskLine(line: string, file: string, lineNumber: number): CorpusTa
   return task;
 }
 
-/** Read every `*.jsonl` file under workspace/tasks/ and return all tasks. */
-export async function readCorpus(workspace: Workspace): Promise<CorpusTask[]> {
+/** Read every `*.jsonl` file under <output_dir>/tasks/ and return all tasks. */
+export async function readCorpus(outputDir: OutputDir): Promise<CorpusTask[]> {
   const tasks: CorpusTask[] = [];
   let dir: FileSystemDirectoryHandle;
   try {
-    dir = await ensureSubdir(workspace, 'tasks');
+    dir = await ensureSubdir(outputDir, 'tasks');
   } catch {
     return [];
   }
@@ -80,12 +80,9 @@ export async function readCorpus(workspace: Workspace): Promise<CorpusTask[]> {
 /**
  * Read existing trajectory output and return the set of (sourcePipeline, taskId)
  * pairs already present, so a resumed run can skip them.
- *
- * Allowing the same taskId across different pipelines (gold + rejection) is
- * intentional — they're different runs.
  */
 export async function readCompletedTaskIds(
-  workspace: Workspace,
+  outputDir: OutputDir,
   outputFile: string,
   sourcePipeline: string,
 ): Promise<Set<string>> {
@@ -93,7 +90,7 @@ export async function readCompletedTaskIds(
   const parts = outputFile.split('/').filter(Boolean);
   const fileName = parts.pop();
   if (!fileName) return completed;
-  let dir: FileSystemDirectoryHandle = workspace.root;
+  let dir: FileSystemDirectoryHandle = outputDir.root;
   try {
     for (const seg of parts) {
       dir = await dir.getDirectoryHandle(seg, { create: false });
@@ -113,7 +110,7 @@ export async function readCompletedTaskIds(
           completed.add(obj.taskId);
         }
       } catch {
-        // Skip unparseable lines silently — they're someone else's problem.
+        // Skip unparseable lines.
       }
     }
   } catch {
@@ -123,6 +120,17 @@ export async function readCompletedTaskIds(
 }
 
 /** A run-scoped helper that owns the trajectories appender. */
-export async function openTrajectoriesAppender(workspace: Workspace) {
-  return openJsonlAppender(workspace, 'output/trajectories.jsonl');
+export async function openTrajectoriesAppender(outputDir: OutputDir) {
+  return openJsonlAppender(outputDir, 'trajectories.jsonl');
+}
+
+/**
+ * Build the user-facing prompt for a task. If the task carries a dataset
+ * path, append it minimally so the model knows what to LoadData. The
+ * agent system prompt already documents that relative paths resolve
+ * against the user's sandbox.
+ */
+export function buildUserPrompt(task: CorpusTask): string {
+  if (!task.dataset) return task.prompt;
+  return `${task.prompt}\n\nDataset: ${task.dataset}`;
 }
