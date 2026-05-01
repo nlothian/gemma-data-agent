@@ -65,7 +65,7 @@ export default function ExecutionPanel() {
       panel.setPending('sql', sqlText);
       panel.setRunning('sql');
       const res = await runSQL(sqlText);
-      panel.setSqlResult(res);
+      panel.setSqlResult('error' in res ? res : res.panel);
     }
   }, [
     active,

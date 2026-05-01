@@ -3,10 +3,11 @@ import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
 import {
-  MAX_DISPLAY_ROWS,
+  LAST_SQL_RESULT_NAME,
   type DataFormat,
   type LoadedTable,
   type RegisteredInputMeta,
+  type RunSQLLLMSummary,
   type TabularResult,
 } from './duckdb';
 
@@ -14,7 +15,24 @@ export type ToolError = {
   error: string;
 };
 
-export type RunSQLResult = TabularResult | ToolError;
+/**
+ * The LLM-facing shape of a `RunSQL` result. The execution panel receives the
+ * full `TabularResult` separately (see `RunSQLPanelResult`) — this is what
+ * the model sees in its tool-use loop, kept tight so a wide / long result set
+ * can't blow out the chat context.
+ */
+export type RunSQLResult = RunSQLLLMSummary | ToolError;
+
+/** What the execution panel store receives — full preview, unchanged from before. */
+export type RunSQLPanelResult = TabularResult | ToolError;
+
+/**
+ * Internal outcome of `runSQL`: the panel preview and the LLM summary travel
+ * together, so the dispatcher can route each half to its consumer.
+ */
+type RunSQLOutcome =
+  | { panel: TabularResult; llm: RunSQLLLMSummary }
+  | ToolError;
 
 export type RunPythonResult =
   | {
@@ -56,16 +74,20 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Run a SQL query in DuckDB-WASM and return the result set.
+ * Run a SQL query in DuckDB-WASM and produce both the panel preview and the
+ * LLM-facing summary.
  *
- * If `registerAs` is provided, the result is also serialized as an Arrow IPC
- * buffer and stored in the cross-tool registry, so a subsequent `RunPython`
- * call sees it as `arrow_inputs["<registerAs>"]: bytes`.
+ * Every successful call publishes the full Arrow result to the input registry
+ * under `_last_sql_result`, so the next `RunPython` can always read
+ * `arrow_inputs["_last_sql_result"]` without re-running the query. If
+ * `registerAs` is supplied, the same buffer is *also* registered under that
+ * name (which survives subsequent `RunSQL` calls that overwrite
+ * `_last_sql_result`).
  */
 export async function runSQL(
   sql: string,
-  registerAs?: string
-): Promise<RunSQLResult> {
+  registerAs?: string,
+): Promise<RunSQLOutcome> {
   if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
   try {
     const {
@@ -73,26 +95,31 @@ export async function runSQL(
       arrowTableToTabularResult,
       arrowTableToIPC,
       registerInput,
-      runStreamingSql,
+      summarizeForLLM,
     } = await import('./duckdb');
-    if (registerAs) {
-      const { conn } = await getDuckDB();
-      const table = await conn.query(sql);
-      const ipc = arrowTableToIPC(table);
-      registerInput(registerAs, ipc, {
-        encoding: 'arrow-ipc',
-        format: 'sql-result',
-        source: 'sql',
-        sourcePath: sql,
-        schema: table.schema.fields.map((f) => ({
-          name: f.name,
-          type: String(f.type),
-        })),
-        rowCount: table.numRows,
-      });
-      return arrowTableToTabularResult(table);
+    const { conn } = await getDuckDB();
+    const table = await conn.query(sql);
+    const ipc = arrowTableToIPC(table);
+    const schema = table.schema.fields.map((f) => ({
+      name: f.name,
+      type: String(f.type),
+    }));
+    const meta = {
+      encoding: 'arrow-ipc' as const,
+      format: 'sql-result',
+      source: 'sql' as const,
+      sourcePath: sql,
+      schema,
+      rowCount: table.numRows,
+    };
+    registerInput(LAST_SQL_RESULT_NAME, ipc, meta);
+    if (registerAs && registerAs !== LAST_SQL_RESULT_NAME) {
+      registerInput(registerAs, ipc, meta);
     }
-    return await runStreamingSql(sql);
+    return {
+      panel: arrowTableToTabularResult(table),
+      llm: summarizeForLLM(table, LAST_SQL_RESULT_NAME),
+    };
   } catch (err) {
     return { error: errorMessage(err) };
   }
@@ -128,17 +155,14 @@ export async function runLoadDataLocal(
 ): Promise<RunLoadDataResult> {
   if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
   try {
-    const { loadSandboxFileByPath } = await import('./sandboxFiles');
+    const [{ loadSandboxFileByPath }, { getLoadedTable }] = await Promise.all([
+      import('./sandboxFiles'),
+      import('./duckdb'),
+    ]);
     const loaded = await loadSandboxFileByPath(relativePath, registerAs);
-    if (loaded.tableName && loaded.schema && loaded.rowCount !== undefined) {
-      const tableFormat: DataFormat = loaded.format === 'json' ? 'json' : 'csv';
-      return {
-        name: loaded.tableName,
-        url: relativePath,
-        format: tableFormat,
-        schema: loaded.schema,
-        rowCount: loaded.rowCount,
-      } satisfies LoadedTable;
+    if (loaded.tableName) {
+      const table = getLoadedTable(loaded.tableName);
+      if (table) return table;
     }
     return {
       kind: 'sandbox-file',
@@ -287,16 +311,18 @@ export async function runAgentTool(
   if (name === 'RunSQL') {
     const sql = typeof obj.sql === 'string' ? obj.sql : '';
     const registerAs = typeof obj.register_as === 'string' ? obj.register_as : undefined;
-    return runWithGate<RunSQLResult>({
+    const outcome = await runWithGate<RunSQLOutcome>({
       toolName: 'RunSQL',
       gateInput: { sql, register_as: registerAs },
       signal,
       onPending: () => panel.setPending('sql', sql),
       onAborted: () => panel.setAborted('sql'),
       onRunning: () => panel.setRunning('sql'),
-      onResult: panel.setSqlResult,
+      onResult: (res) =>
+        panel.setSqlResult('error' in res ? res : res.panel),
       run: () => runSQL(sql, registerAs),
     });
+    return 'error' in outcome ? outcome : outcome.llm;
   }
   if (name === 'RunPython') {
     const code = typeof obj.code === 'string' ? obj.code : '';
@@ -396,18 +422,22 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
   {
     name: 'RunSQL',
     description:
-      'Execute a SQL query in DuckDB-WASM and return the result set. On ' +
-      'success returns { columns: string[], rows: unknown[][], truncated: ' +
-      'boolean }. On failure returns { error: string }. The `rows` array is ' +
-      `capped at the first ${MAX_DISPLAY_ROWS} rows for preview; ` +
-      '`truncated: true` means more rows exist — add a LIMIT/aggregation or ' +
-      'use `register_as` to route the full result to RunPython. ' +
-      'When `register_as` is set, the full result is published to the input ' +
-      'registry as Arrow IPC and shows up as `arrow_inputs["<register_as>"]` ' +
-      'in subsequent RunPython calls (decode with ' +
-      '`pa.ipc.open_stream(...).read_all()`). Use this for derived results; ' +
-      'tables created by LoadData are auto-published under their table name ' +
-      'and do not need register_as.',
+      'Execute a SQL query in DuckDB-WASM. On success returns ' +
+      '{ columns: [{name, type}], sample_rows: unknown[][], total_rows: ' +
+      'number, registered_as: string }. On failure returns { error: string }. ' +
+      'You only see the first 3 rows (`sample_rows`); the FULL result of ' +
+      'every successful RunSQL is auto-published to the input registry under ' +
+      `\`registered_as\` (always "${LAST_SQL_RESULT_NAME}", overwritten on ` +
+      'each call). To work with all rows, call RunPython and read ' +
+      '`arrow_inputs[registered_as]` (decode with ' +
+      '`pa.ipc.open_stream(...).read_all()`). Long string cells in ' +
+      '`sample_rows` are truncated; the panel UI shows the user the full ' +
+      'preview, you do not. Use SQL aggregations / LIMIT / WHERE for ' +
+      'analysis you can answer in SQL; switch to RunPython for everything ' +
+      'else. `register_as: "<name>"` adds an additional named handle that ' +
+      `survives later RunSQL calls (which only overwrite ${LAST_SQL_RESULT_NAME}). ` +
+      'Tables created by LoadData are already auto-published under their ' +
+      'table name and do not need register_as.',
     parameters: {
       type: 'object',
       properties: {
@@ -418,8 +448,10 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
         register_as: {
           type: 'string',
           description:
-            'Optional name under which to publish the result as an Arrow IPC ' +
-            'buffer for later RunPython calls.',
+            'Optional additional name under which to publish the result as ' +
+            `an Arrow IPC buffer (in addition to "${LAST_SQL_RESULT_NAME}"). ` +
+            'Use this when you need the result to survive subsequent RunSQL ' +
+            'calls.',
         },
       },
       required: ['sql'],

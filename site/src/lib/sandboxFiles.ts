@@ -8,12 +8,12 @@
  */
 import {
   dropTableIfExists,
-  dropVirtualFile,
   publishTableAsInput,
   registerAndLoadBuffer,
-  registerFileBufferOnly,
   registerInput,
+  registerNamedFileBuffer,
   unregisterInput,
+  untrackAndDropVirtualFile,
   type DataFormat,
   type LoadedTable,
 } from './duckdb';
@@ -100,7 +100,7 @@ function virtualPathFor(relativePath: string): string {
 
 async function disposeEntry(entry: LoadedSandboxFile): Promise<void> {
   unregisterInput(entry.name);
-  await dropVirtualFile(entry.virtualPath);
+  await untrackAndDropVirtualFile(entry.name);
   if (entry.tableName) {
     try {
       await dropTableIfExists(entry.tableName);
@@ -138,6 +138,7 @@ export async function loadSandboxFile(
       registerAs,
       tableBytes,
       duckFormat,
+      'sandbox',
       relativePath,
       virtualPath,
     );
@@ -158,7 +159,7 @@ export async function loadSandboxFile(
       rowCount: loaded.rowCount,
     };
   } else {
-    await registerFileBufferOnly(virtualPath, bytes);
+    await registerNamedFileBuffer(registerAs, virtualPath, bytes, 'sandbox', relativePath);
     registerInput(registerAs, bytes, {
       encoding: 'raw-bytes',
       format: ext,
@@ -226,9 +227,12 @@ async function xlsxToCsvBytes(bytes: Uint8Array): Promise<Uint8Array> {
 }
 
 export async function clearAllSandboxFiles(): Promise<void> {
-  if (registry.size === 0) return;
-  const entries = Array.from(registry.values());
+  const hadEntries = registry.size > 0;
   registry.clear();
-  await Promise.all(entries.map(disposeEntry));
-  notify();
+  // Sweep all caches by `source === 'sandbox'`. Works even when this in-memory
+  // registry is empty (post-reload state, where inputRegistry rehydrates from
+  // IDB but sandboxFiles starts fresh).
+  const { onSandboxDirectoryChange } = await import('./cacheRegistry');
+  await onSandboxDirectoryChange();
+  if (hadEntries) notify();
 }

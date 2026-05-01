@@ -23,7 +23,7 @@ import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
-import { restoreRegistryFromIndexedDB, clearAllInputs } from '../lib/duckdb';
+import { restoreRegistryFromIndexedDB } from '../lib/duckdb';
 import {
   getContextWindowForEndpoint,
   formatTokenCount,
@@ -662,12 +662,8 @@ export default function ChatSidebar() {
   const onNewChat = useCallback(() => {
     if (isStreaming) abortRef.current?.abort();
     toolDebugger.reset();
-    executionPanelStore.clearPanelAndPersistence();
     tokenUsageStore.setTokenUsage(null);
     clear();
-    void clearAllInputs().catch((err) => {
-      console.warn('onNewChat: clearAllInputs failed:', err);
-    });
   }, [clear, isStreaming]);
 
   const messages = history.messages;

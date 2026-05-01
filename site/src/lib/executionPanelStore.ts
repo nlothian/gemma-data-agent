@@ -11,7 +11,7 @@ import type {
   LoadedSandboxFileResult,
   RunLoadDataResult,
   RunPythonResult,
-  RunSQLResult,
+  RunSQLPanelResult,
 } from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
 import {
@@ -19,6 +19,7 @@ import {
   loadPanelSnapshot,
   clearPanelSnapshot,
 } from './registryPersistence';
+import { registerCache, type Cache } from './cacheRegistry';
 
 function isSandboxFileResult(
   res: LoadedTable | LoadedSandboxFileResult,
@@ -314,7 +315,7 @@ function revokePythonImages(): void {
   }
 }
 
-export function setSqlResult(res: RunSQLResult): void {
+export function setSqlResult(res: RunSQLPanelResult): void {
   if ('error' in res) {
     setSnapshot({
       ...snapshot,
@@ -378,6 +379,30 @@ export function setDataResult(res: RunLoadDataResult): void {
     },
   });
 }
+
+export function removeDataTables(names: Iterable<string>): void {
+  const drop = new Set(names);
+  if (drop.size === 0) return;
+  const next = snapshot.data.tables.filter((t) => !drop.has(t.name));
+  if (next.length === snapshot.data.tables.length) return;
+  setSnapshot({
+    ...snapshot,
+    data: { ...snapshot.data, tables: next },
+  });
+}
+
+const panelTablesCache: Cache = {
+  id: 'panelTables',
+  list: () =>
+    snapshot.data.tables.map((t) => ({
+      name: t.name,
+      source: t.source,
+      sourcePath: t.sourcePath,
+    })),
+  invalidateNames: async (names) => removeDataTables(names),
+};
+
+registerCache(panelTablesCache);
 
 export function setAborted(kind: PaneKind): void {
   if (kind === 'python') {
@@ -481,6 +506,12 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
     data: {
       ...persisted.data,
       status: normalize(persisted.data.status),
+      // Default missing source on pre-tag snapshots; sandbox-tagged entries
+      // from before the upgrade get mis-tagged as 'url' and survive the next
+      // directory change, but the user can clear them manually.
+      tables: persisted.data.tables.map((t) =>
+        t.source ? t : { ...t, source: 'url' as const },
+      ),
       pendingUrl: undefined,
       pendingTable: undefined,
     },
