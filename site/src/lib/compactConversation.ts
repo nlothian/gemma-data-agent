@@ -21,7 +21,7 @@ import {
   getLocalGemmaModel,
   type LocalGemmaId,
 } from './localLlm/models';
-import compactionPromptText from './compactionPrompt.md?raw';
+import compactionPromptText from '../prompts/compactionPrompt.md?raw';
 
 export interface CompactConversationArgs {
   config: LLMConfig;

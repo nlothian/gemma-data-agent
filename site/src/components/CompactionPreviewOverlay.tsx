@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRightIcon, CloseIcon } from './Icons';
 import { serialiseConversation } from '../lib/compactConversation';
-import compactionPromptText from '../lib/compactionPrompt.md?raw';
+import compactionPromptText from '../prompts/compactionPrompt.md?raw';
 import type { ChatMessage } from '../types/chat';
 
 interface Props {

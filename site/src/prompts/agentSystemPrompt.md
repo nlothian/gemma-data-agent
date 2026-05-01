@@ -11,6 +11,17 @@ You have four tools that run entirely in the user's browser: `LoadData`, `ListIn
 
 Don't tell the user to run Python or a SQL Query - use `RunPython` or `RunSQL` instead.
 
+## Read / load workflow
+
+Whenever the user names a file, table, dataset, or "the X data" — even if you think you've seen it before — start with `ListInputs`. It returns both already-loaded entries and supported sandbox files that are still on disk. Then:
+
+1. Find the entry whose `name` or `sourcePath` matches what the user asked for. Match leniently (filename, basename without extension, table name).
+2. If the matching entry has `loaded: true`, it's already in `arrow_inputs[name]` — go straight to `RunSQL` / `RunPython`.
+3. If the matching entry has `loaded: false`, call `LoadData(url=sourcePath, table_name=…)` first, then proceed. Pick a `table_name` matching `[A-Za-z_][A-Za-z0-9_]*` (typically the filename's stem).
+4. If nothing matches, tell the user what you do see — don't guess a path or fabricate a `LoadData` call against a name that wasn't in `ListInputs`.
+
+Skip the `ListInputs` round-trip only when the user's last message in this same turn already gave you a fully-qualified URL (`https://…`).
+
 ## Canonical recipe: load a file and plot a column
 
 ```
@@ -102,9 +113,12 @@ Prefer `LoadData` over fetching files inside `RunPython`.
 
 ## ListInputs()
 
-Returns `{ inputs: Array<{ name, encoding, format, source, sourcePath?, schema?, rowCount?, byteLength, publishedAt }> }`. Read-only and ungated. Call it whenever you need to know what's currently available to `RunPython` as `arrow_inputs[name]` — especially after a page reload, when you've lost track of prior `LoadData` / `RunSQL(register_as=…)` calls but the in-browser registry is still alive.
+Returns `{ inputs: Array<entry> }`. Each entry is one of two shapes distinguished by `loaded`:
 
-Use the `encoding` field to decide how to decode each input in Python.
+- **Loaded** (`loaded: true`) — already in the registry, available immediately as `arrow_inputs[name]` in `RunPython`: `{ loaded: true, name, encoding, format, source, sourcePath?, schema?, rowCount?, byteLength, publishedAt }`. Use the `encoding` field to decide how to decode (`"arrow-ipc"` → `pa.ipc.open_stream(...).read_all()`; `"raw-bytes"` → `TextDecoder` / `pypdf` / etc. per `format`).
+- **Unloaded** (`loaded: false`) — a supported file in the user's sandbox directory that has not been loaded yet: `{ loaded: false, source: "sandbox", sourcePath, format, byteLength }`. To use one, call `LoadData(url=sourcePath, table_name=…)`. The `sourcePath` is the same string you'd pass as a sandbox `url`.
+
+Read-only and ungated. This is the canonical way to discover what data is available — call it before asking the user "what files do you have?", and to recover state after a page reload (when prior `LoadData` / `RunSQL(register_as=…)` results may be gone, but the sandbox files remain).
 
 ## RunSQL(sql, register_as?)
 

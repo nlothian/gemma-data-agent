@@ -1,4 +1,4 @@
-import agentSystemPromptMd from './agentSystemPrompt.md?raw';
+import agentSystemPromptMd from '../prompts/agentSystemPrompt.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -54,7 +54,17 @@ export interface LoadedSandboxFileResult {
 
 export type RunLoadDataResult = LoadedTable | LoadedSandboxFileResult | ToolError;
 
-export type RunListInputsResult = { inputs: RegisteredInputMeta[] } | ToolError;
+export type ListInputsEntry =
+  | (RegisteredInputMeta & { loaded: true })
+  | {
+      loaded: false;
+      source: 'sandbox';
+      sourcePath: string;
+      format: string;
+      byteLength: number;
+    };
+
+export type RunListInputsResult = { inputs: ListInputsEntry[] } | ToolError;
 
 const BROWSER_ONLY_ERROR =
   'Tools can only run in the browser; this call was made in a non-browser context.';
@@ -245,14 +255,43 @@ export async function runPython(code: string): Promise<RunPythonResult> {
 
 /**
  * List every named buffer currently available to RunPython as
- * `arrow_inputs[name]`. Read-only and ungated — this is metadata the agent
- * can fetch at any time to recover from "what tables / files do I have?".
+ * `arrow_inputs[name]`, plus every supported sandbox file the agent could
+ * still load with `LoadData`. Read-only and ungated — this is metadata the
+ * agent can fetch at any time to discover and recover state.
  */
 export async function runListInputs(): Promise<RunListInputsResult> {
   if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
   try {
     const { listInputs } = await import('./duckdb');
-    return { inputs: listInputs() };
+    const registered = listInputs();
+    const inputs: ListInputsEntry[] = registered.map((meta) => ({
+      ...meta,
+      loaded: true as const,
+    }));
+
+    const { getCurrentDirectoryHandle, getSnapshot, refreshFiles } =
+      await import('./sandboxStore');
+    if (getCurrentDirectoryHandle()) {
+      const loadedSandboxPaths = new Set<string>();
+      for (const meta of registered) {
+        if (meta.source === 'sandbox' && meta.sourcePath) {
+          loadedSandboxPaths.add(meta.sourcePath);
+        }
+      }
+      await refreshFiles();
+      for (const file of getSnapshot().files) {
+        if (loadedSandboxPaths.has(file.relativePath)) continue;
+        inputs.push({
+          loaded: false,
+          source: 'sandbox',
+          sourcePath: file.relativePath,
+          format: file.ext,
+          byteLength: file.sizeBytes,
+        });
+      }
+    }
+
+    return { inputs };
   } catch (err) {
     return { error: errorMessage(err) };
   }
@@ -489,15 +528,23 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
   {
     name: 'ListInputs',
     description:
-      'List every named buffer currently available to RunPython as ' +
-      '`arrow_inputs[name]`. Returns { inputs: Array<{ name, encoding, ' +
-      'format, source, sourcePath?, schema?, rowCount?, byteLength, ' +
-      'publishedAt }> }. `encoding` is "arrow-ipc" (decode with ' +
-      '`pa.ipc.open_stream(...).read_all()`) or "raw-bytes" (decode with ' +
-      'TextDecoder / pypdf / etc. per `format`). `source` is one of "url", ' +
-      '"sandbox", "sql", "python". Read-only and ungated; safe to call any ' +
-      'time the agent needs to recover the registry state (e.g. after a ' +
-      'page reload).',
+      'List every input the agent can work with. Returns ' +
+      '{ inputs: Array<entry> } where each entry is one of two shapes ' +
+      'distinguished by `loaded`. ' +
+      'LOADED entries (`loaded: true`) are buffers already in the registry, ' +
+      'available immediately as `arrow_inputs[name]` in RunPython: ' +
+      '{ loaded: true, name, encoding, format, source, sourcePath?, ' +
+      'schema?, rowCount?, byteLength, publishedAt }. `encoding` is ' +
+      '"arrow-ipc" (decode with `pa.ipc.open_stream(...).read_all()`) or ' +
+      '"raw-bytes" (decode with TextDecoder / pypdf / etc. per `format`); ' +
+      '`source` is one of "url", "sandbox", "sql", "python". ' +
+      'UNLOADED entries (`loaded: false`) are supported sandbox files the ' +
+      "user's directory contains but that haven't been loaded yet: " +
+      '{ loaded: false, source: "sandbox", sourcePath, format, byteLength }. ' +
+      'To use one, call `LoadData(url=sourcePath, table_name=...)` — the ' +
+      '`sourcePath` is the same string you would pass as a sandbox `url`. ' +
+      'Read-only and ungated; safe to call any time to discover what data ' +
+      'is available or recover state after a page reload.',
     parameters: {
       type: 'object',
       properties: {},
