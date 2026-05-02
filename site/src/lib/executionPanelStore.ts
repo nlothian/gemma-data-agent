@@ -14,6 +14,7 @@ import type {
   RunSQLPanelResult,
 } from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
+import type { RunReactResult } from './reactSandbox';
 import {
   savePanelSnapshot,
   loadPanelSnapshot,
@@ -27,7 +28,7 @@ function isSandboxFileResult(
   return (res as LoadedSandboxFileResult).kind === 'sandbox-file';
 }
 
-export type PaneKind = 'data' | 'python' | 'sql';
+export type PaneKind = 'data' | 'python' | 'sql' | 'react';
 export type PaneStatus =
   | 'idle'
   | 'pending'
@@ -71,6 +72,30 @@ export interface DataPaneState {
   errorMessage?: string;
 }
 
+export interface ReactCompileErrorView {
+  message: string;
+  line?: number;
+  column?: number;
+}
+
+export interface ReactRuntimeErrorView {
+  message: string;
+  stack?: string;
+}
+
+export interface ReactPaneState {
+  source: string;
+  status: PaneStatus;
+  compileErrors: ReactCompileErrorView[];
+  runtimeErrors: ReactRuntimeErrorView[];
+  /**
+   * Bumped on each result so that ReactPanel knows when to re-mount the
+   * iframe inside the View sub-tab — independent of `source`, since the user
+   * may re-run the same code and still want a fresh render.
+   */
+  resultGeneration: number;
+}
+
 export interface LlmActivityState {
   active: boolean;
   /**
@@ -79,6 +104,14 @@ export interface LlmActivityState {
    * takes priority over the regular "Thinking" label.
    */
   compacting: boolean;
+  /**
+   * Set while the body-side parser in `streamLocalGemma` is holding back an
+   * in-progress `<|tool_call>...<tool_call|>` block (the closing tag hasn't
+   * arrived yet). `name` is filled once the `call:NAME{` prefix is parseable;
+   * until then it's null. Cleared as soon as the call is fully parsed (the
+   * pane status takes over) or the stream ends.
+   */
+  preparingToolCall: { name: string | null } | null;
   modelDownload: { label: string; pct: number; fromCache: boolean } | null;
 }
 
@@ -87,6 +120,7 @@ export interface ExecutionPanelSnapshot {
   python: PythonPaneState;
   sql: SqlPaneState;
   data: DataPaneState;
+  react: ReactPaneState;
   llm: LlmActivityState;
   /**
    * True while we're rehydrating panel + registry state from IndexedDB after
@@ -117,9 +151,18 @@ const INITIAL_DATA: DataPaneState = {
   tables: [],
 };
 
+const INITIAL_REACT: ReactPaneState = {
+  source: '',
+  status: 'idle',
+  compileErrors: [],
+  runtimeErrors: [],
+  resultGeneration: 0,
+};
+
 const INITIAL_LLM: LlmActivityState = {
   active: false,
   compacting: false,
+  preparingToolCall: null,
   modelDownload: null,
 };
 
@@ -128,6 +171,7 @@ const INITIAL_SNAPSHOT: ExecutionPanelSnapshot = {
   python: INITIAL_PYTHON,
   sql: INITIAL_SQL,
   data: INITIAL_DATA,
+  react: INITIAL_REACT,
   llm: INITIAL_LLM,
   restoring: false,
 };
@@ -149,18 +193,23 @@ interface PersistedPanelSnapshot {
   python: Omit<PythonPaneState, 'images'>;
   sql: SqlPaneState;
   data: DataPaneState;
+  react?: Omit<ReactPaneState, 'resultGeneration'>;
 }
 
 function buildPersisted(s: ExecutionPanelSnapshot): PersistedPanelSnapshot {
   // Drop transient session state: live `images` (object URLs) are useless
   // across reloads — `imageBytes` is the canonical form. `llm` is session-
   // runtime (download progress, "thinking" flag) and shouldn't persist.
+  // For react, drop `resultGeneration` (the live iframe is gone after a
+  // reload anyway, so we don't want a stale generation triggering a re-mount).
   const { images: _imgs, ...persistedPython } = s.python;
+  const { resultGeneration: _gen, ...persistedReact } = s.react;
   return {
     activeTab: s.activeTab,
     python: persistedPython,
     sql: s.sql,
     data: s.data,
+    react: persistedReact,
   };
 }
 
@@ -202,7 +251,7 @@ export function setActiveTab(tab: PaneKind): void {
   setSnapshot({ ...snapshot, activeTab: tab });
 }
 
-export function setPending(kind: 'python' | 'sql', source: string): void {
+export function setPending(kind: 'python' | 'sql' | 'react', source: string): void {
   if (kind === 'python') {
     revokePythonImages();
     setSnapshot({
@@ -215,6 +264,20 @@ export function setPending(kind: 'python' | 'sql', source: string): void {
         stderr: '',
         images: [],
         imageBytes: [],
+      },
+    });
+    return;
+  }
+  if (kind === 'react') {
+    setSnapshot({
+      ...snapshot,
+      activeTab: 'react',
+      react: {
+        ...snapshot.react,
+        source,
+        status: 'pending',
+        compileErrors: [],
+        runtimeErrors: [],
       },
     });
     return;
@@ -253,6 +316,11 @@ export function setRunning(kind: PaneKind): void {
     setSnapshot({
       ...snapshot,
       sql: { ...snapshot.sql, status: 'running' },
+    });
+  } else if (kind === 'react') {
+    setSnapshot({
+      ...snapshot,
+      react: { ...snapshot.react, status: 'running' },
     });
   } else {
     setSnapshot({
@@ -313,6 +381,20 @@ function revokePythonImages(): void {
       // ignore
     }
   }
+}
+
+export function setReactResult(res: RunReactResult): void {
+  const status: PaneStatus = res.ok ? 'done' : 'error';
+  setSnapshot({
+    ...snapshot,
+    react: {
+      ...snapshot.react,
+      status,
+      compileErrors: res.compileErrors,
+      runtimeErrors: res.runtimeErrors,
+      resultGeneration: snapshot.react.resultGeneration + 1,
+    },
+  });
 }
 
 export function setSqlResult(res: RunSQLPanelResult): void {
@@ -415,6 +497,11 @@ export function setAborted(kind: PaneKind): void {
       ...snapshot,
       sql: { ...snapshot.sql, status: 'aborted' },
     });
+  } else if (kind === 'react') {
+    setSnapshot({
+      ...snapshot,
+      react: { ...snapshot.react, status: 'aborted' },
+    });
   } else {
     setSnapshot({
       ...snapshot,
@@ -431,6 +518,66 @@ export function setLlmActive(active: boolean): void {
 export function setLlmCompacting(compacting: boolean): void {
   if (snapshot.llm.compacting === compacting) return;
   setSnapshot({ ...snapshot, llm: { ...snapshot.llm, compacting } });
+}
+
+/**
+ * Push a partial source string into a code pane while the model is still
+ * streaming the tool-call body. Switches to the pane's tab and updates
+ * `source`, but leaves `status` alone — the pane isn't actually pending yet
+ * (the agent dispatch will call `setPending` once the full call is parsed).
+ * The ExecutionPanel auto-unfolds the code editor on `source` change.
+ */
+export function setStreamingSource(
+  kind: 'python' | 'sql' | 'react',
+  source: string,
+): void {
+  if (kind === 'python') {
+    if (snapshot.activeTab === 'python' && snapshot.python.source === source) return;
+    setSnapshot({
+      ...snapshot,
+      activeTab: 'python',
+      python: { ...snapshot.python, source },
+    });
+    return;
+  }
+  if (kind === 'sql') {
+    if (snapshot.activeTab === 'sql' && snapshot.sql.source === source) return;
+    setSnapshot({
+      ...snapshot,
+      activeTab: 'sql',
+      sql: { ...snapshot.sql, source },
+    });
+    return;
+  }
+  if (snapshot.activeTab === 'react' && snapshot.react.source === source) return;
+  // For React, reset the previous run's diagnostics and bring the View back
+  // to its placeholder so the Console/View panes don't keep showing stale
+  // output while new code streams in. The iframe DOM itself is cleared by
+  // ReactPanel's source-change effect.
+  setSnapshot({
+    ...snapshot,
+    activeTab: 'react',
+    react: {
+      ...snapshot.react,
+      source,
+      compileErrors: [],
+      runtimeErrors: [],
+      resultGeneration: 0,
+    },
+  });
+}
+
+export function setLlmPreparingToolCall(
+  next: { name: string | null } | null,
+): void {
+  const cur = snapshot.llm.preparingToolCall;
+  if (cur === next) return;
+  if (cur && next && cur.name === next.name) return;
+  if (!cur && !next) return;
+  setSnapshot({
+    ...snapshot,
+    llm: { ...snapshot.llm, preparingToolCall: next },
+  });
 }
 
 export function setLocalLlmDownloadProgress(
@@ -493,6 +640,7 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
     s === 'running' || s === 'pending' ? 'idle' : s;
   const imageBytes = persisted.python.imageBytes ?? [];
   const images = imagesToObjectUrls(imageBytes);
+  const persistedReact = persisted.react;
   setSnapshot({
     ...snapshot,
     activeTab: persisted.activeTab,
@@ -515,6 +663,15 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
       pendingUrl: undefined,
       pendingTable: undefined,
     },
+    react: persistedReact
+      ? {
+          ...persistedReact,
+          status: normalize(persistedReact.status),
+          // The live iframe doesn't survive a reload — force the View pane
+          // to show "Re-run to render" by leaving generation at 0.
+          resultGeneration: 0,
+        }
+      : INITIAL_REACT,
   });
 }
 

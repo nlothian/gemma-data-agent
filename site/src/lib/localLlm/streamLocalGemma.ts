@@ -9,8 +9,14 @@ import {
   renderConversationForGemma,
   CHANNEL_OPEN,
   CHANNEL_CLOSE,
+  TOOL_CALL_OPEN,
+  STRING_DELIM,
   type InternalMessage,
 } from './toolPrompt';
+import {
+  setLlmPreparingToolCall,
+  setStreamingSource,
+} from '../executionPanelStore';
 import {
   createSplitterState,
   feedSplitter,
@@ -21,6 +27,71 @@ import { LOCAL_GEMMA_ENDPOINT } from '../../types/llm';
 
 const MAX_TOOL_ITERATIONS = 5;
 const THINKING_OPEN_MARKER = `${CHANNEL_OPEN}thought\n`;
+
+/**
+ * Inspect the held-back tool-call buffer (`parsed.rest`) and decide what the
+ * throbber should advertise. Returns `null` if the buffer doesn't yet contain
+ * a complete `<|tool_call>` opener (so we're still in plain-text holdback or
+ * idle), `{ name: null }` if the opener is present but the `call:NAME{`
+ * prefix isn't parseable yet, and `{ name }` once the name is available.
+ */
+function extractPreparingToolCall(
+  buffer: string,
+): { name: string | null } | null {
+  if (!buffer.startsWith(TOOL_CALL_OPEN)) return null;
+  const after = buffer.slice(TOOL_CALL_OPEN.length);
+  const callPrefix = 'call:';
+  if (!after.startsWith(callPrefix)) {
+    // Opener present but we don't even have `call:` yet — model is still
+    // emitting the prefix.
+    return { name: null };
+  }
+  const rest = after.slice(callPrefix.length);
+  // Name runs up to `{` (start of body) or whitespace.
+  const match = rest.match(/^([A-Za-z0-9_]+)/);
+  if (!match) return { name: null };
+  return { name: match[1] };
+}
+
+/**
+ * Tools whose body has a single "main" code/sql field that we want to stream
+ * into the corresponding pane's editor as it's generated. The key is the
+ * argument name in the Gemma tool-call body (e.g. `code:<|"|>...<|"|>`).
+ */
+const STREAMING_FIELDS: Record<string, { kind: 'python' | 'sql' | 'react'; key: string }> = {
+  RunPython: { kind: 'python', key: 'code' },
+  RunSQL: { kind: 'sql', key: 'sql' },
+  RunReact: { kind: 'react', key: 'code' },
+};
+
+/**
+ * Pull the partial source string for a streaming tool-call body. Returns the
+ * pane kind and the substring between the opening `<key>:<|"|>` and either
+ * the closing `<|"|>` (if it has arrived) or the current end of the buffer.
+ * Returns `null` if the body isn't yet shaped like a recognised streaming
+ * tool, or the relevant field hasn't started yet.
+ */
+function extractStreamingCode(
+  buffer: string,
+): { kind: 'python' | 'sql' | 'react'; source: string } | null {
+  if (!buffer.startsWith(TOOL_CALL_OPEN)) return null;
+  const after = buffer.slice(TOOL_CALL_OPEN.length);
+  const callPrefix = 'call:';
+  if (!after.startsWith(callPrefix)) return null;
+  const rest = after.slice(callPrefix.length);
+  const nameMatch = rest.match(/^([A-Za-z0-9_]+)\{/);
+  if (!nameMatch) return null;
+  const spec = STREAMING_FIELDS[nameMatch[1]];
+  if (!spec) return null;
+  const body = rest.slice(nameMatch[0].length);
+  const opener = `${spec.key}:${STRING_DELIM}`;
+  const openerIdx = body.indexOf(opener);
+  if (openerIdx === -1) return null;
+  const valStart = openerIdx + opener.length;
+  const closeIdx = body.indexOf(STRING_DELIM, valStart);
+  const source = closeIdx === -1 ? body.slice(valStart) : body.slice(valStart, closeIdx);
+  return { kind: spec.kind, source };
+}
 
 export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
   const { config, messages, tools, signal, onToken, onHistoryDelta, onDone, onError, onUsage } =
@@ -132,10 +203,20 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
         toolBuffer = parsed.rest;
         if (parsed.toolCall) {
           pendingToolCall = parsed.toolCall;
+          // Once the call is fully parsed, the agent dispatch will switch
+          // the relevant pane to pending and the throbber will surface
+          // "Running Python" / "Running SQL" instead.
+          setLlmPreparingToolCall(null);
           try {
             cancelGenerate();
           } catch {
             // ignore
+          }
+        } else {
+          setLlmPreparingToolCall(extractPreparingToolCall(toolBuffer));
+          const streaming = extractStreamingCode(toolBuffer);
+          if (streaming) {
+            setStreamingSource(streaming.kind, streaming.source);
           }
         }
       };

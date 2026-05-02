@@ -8,7 +8,7 @@ import {
   type PaneKind,
   type PaneStatus,
 } from '../lib/executionPanelStore';
-import { runPython, runSQL } from '../lib/agentTools';
+import { runPython, runReact, runSQL } from '../lib/agentTools';
 import useExecutionPanelHeight, {
   MIN_HEIGHT,
   MAX_HEIGHT,
@@ -16,11 +16,13 @@ import useExecutionPanelHeight, {
 import CodeView from './CodeView';
 import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
+import ReactPanel from './ReactPanel';
 import SqlResultGrid from './SqlResultGrid';
 import { ChevronDownIcon, PlayIcon } from './Icons';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
+const REACT_PLACEHOLDER = '// Awaiting RunReact call';
 
 export default function ExecutionPanel() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -30,6 +32,7 @@ export default function ExecutionPanel() {
 
   const [editedPython, setEditedPython] = useState<string | null>(null);
   const [editedSql, setEditedSql] = useState<string | null>(null);
+  const [editedReact, setEditedReact] = useState<string | null>(null);
 
   useEffect(() => {
     setEditedPython(null);
@@ -39,15 +42,24 @@ export default function ExecutionPanel() {
     setEditedSql(null);
     if (snap.sql.source) setCodeFolded(false);
   }, [snap.sql.source]);
+  useEffect(() => {
+    setEditedReact(null);
+    if (snap.react.source) setCodeFolded(false);
+  }, [snap.react.source]);
 
   const pythonValue = editedPython ?? snap.python.source;
   const sqlValue = editedSql ?? snap.sql.source;
+  const reactValue = editedReact ?? snap.react.source;
   const isPythonEdited =
     editedPython !== null && editedPython !== snap.python.source;
   const isSqlEdited = editedSql !== null && editedSql !== snap.sql.source;
+  const isReactEdited =
+    editedReact !== null && editedReact !== snap.react.source;
   const pythonBusy =
     snap.python.status === 'pending' || snap.python.status === 'running';
   const sqlBusy = snap.sql.status === 'pending' || snap.sql.status === 'running';
+  const reactBusy =
+    snap.react.status === 'pending' || snap.react.status === 'running';
 
   const toggleFold = () => setCodeFolded((v) => !v);
 
@@ -66,20 +78,31 @@ export default function ExecutionPanel() {
       panel.setRunning('sql');
       const res = await runSQL(sqlText);
       panel.setSqlResult('error' in res ? res : res.panel);
+    } else if (active === 'react') {
+      const code = editedReact ?? snap.react.source;
+      if (code.length === 0 || reactBusy) return;
+      panel.setPending('react', code);
+      panel.setRunning('react');
+      const res = await runReact(code);
+      panel.setReactResult(res);
     }
   }, [
     active,
     editedPython,
     editedSql,
+    editedReact,
     snap.python.source,
     snap.sql.source,
+    snap.react.source,
     pythonBusy,
     sqlBusy,
+    reactBusy,
   ]);
 
   const canRun =
     (active === 'python' && isPythonEdited && !pythonBusy && pythonValue.length > 0) ||
-    (active === 'sql' && isSqlEdited && !sqlBusy && sqlValue.length > 0);
+    (active === 'sql' && isSqlEdited && !sqlBusy && sqlValue.length > 0) ||
+    (active === 'react' && isReactEdited && !reactBusy && reactValue.length > 0);
 
   const onResizeHandlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -146,6 +169,11 @@ export default function ExecutionPanel() {
           active={active === 'sql'}
           status={snap.sql.status}
         />
+        <TabButton
+          kind="react"
+          active={active === 'react'}
+          status={snap.react.status}
+        />
       </div>
       <div className="exec-body">
         {active === 'data' ? (
@@ -202,13 +230,21 @@ export default function ExecutionPanel() {
                     onChange={setEditedPython}
                     placeholder={PYTHON_PLACEHOLDER}
                   />
-                ) : (
+                ) : active === 'sql' ? (
                   <CodeView
                     code={sqlValue}
                     language="sql"
                     editable
                     onChange={setEditedSql}
                     placeholder={SQL_PLACEHOLDER}
+                  />
+                ) : (
+                  <CodeView
+                    code={reactValue}
+                    language="tsx"
+                    editable
+                    onChange={setEditedReact}
+                    placeholder={REACT_PLACEHOLDER}
                   />
                 )}
               </div>
@@ -224,11 +260,17 @@ export default function ExecutionPanel() {
                 codeFolded={codeFolded}
                 onToggleFold={toggleFold}
               />
-            ) : (
+            ) : active === 'sql' ? (
               <SqlResultGrid
                 tabular={snap.sql.tabular}
                 errorMessage={snap.sql.errorMessage}
                 status={snap.sql.status}
+              />
+            ) : (
+              <ReactPanel
+                state={snap.react}
+                codeFolded={codeFolded}
+                onToggleFold={toggleFold}
               />
             )}
           </>
@@ -257,7 +299,11 @@ interface TabButtonProps {
 }
 
 function TabButton({ kind, active, status }: TabButtonProps) {
-  const label = kind === 'python' ? 'Python' : kind === 'sql' ? 'SQL' : 'Data';
+  const label =
+    kind === 'python' ? 'Python'
+      : kind === 'sql' ? 'SQL'
+      : kind === 'react' ? 'React'
+      : 'Data';
   return (
     <button
       type="button"

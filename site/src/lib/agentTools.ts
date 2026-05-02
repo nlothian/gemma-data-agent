@@ -2,6 +2,7 @@ import baseMd from '../prompts/agent/base.md?raw';
 import dataLoadingMd from '../prompts/agent/dataLoading.md?raw';
 import runSqlMd from '../prompts/agent/runSql.md?raw';
 import runPythonMd from '../prompts/agent/runPython.md?raw';
+import runReactMd from '../prompts/agent/runReact.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -257,6 +258,23 @@ export async function runPython(code: string): Promise<RunPythonResult> {
 }
 
 /**
+ * Compile + render a TypeScript + React snippet inside the sandbox iframe
+ * managed by `reactSandbox.ts`. Surfaces compile diagnostics and runtime
+ * errors for the agent's self-correction loop.
+ */
+export async function runReact(code: string): Promise<import('./reactSandbox').RunReactResult> {
+  if (!isBrowser()) {
+    return {
+      ok: false,
+      compileErrors: [],
+      runtimeErrors: [{ message: BROWSER_ONLY_ERROR }],
+    };
+  }
+  const { runReactSandbox } = await import('./reactSandbox');
+  return runReactSandbox(code);
+}
+
+/**
  * List every named buffer currently available to RunPython as
  * `arrow_inputs[name]`, plus every supported sandbox file the agent could
  * still load with `LoadData`. Read-only and ungated — this is metadata the
@@ -385,6 +403,20 @@ export async function runAgentTool(
       return rest;
     }
     return res;
+  }
+  if (name === 'RunReact') {
+    const code = typeof obj.code === 'string' ? obj.code : '';
+    const { runReactSandbox } = await import('./reactSandbox');
+    return runWithGate({
+      toolName: 'RunReact',
+      gateInput: { code },
+      signal,
+      onPending: () => panel.setPending('react', code),
+      onAborted: () => panel.setAborted('react'),
+      onRunning: () => panel.setRunning('react'),
+      onResult: panel.setReactResult,
+      run: () => runReactSandbox(code),
+    });
   }
   if (name === 'ListInputs') {
     return runListInputs();
@@ -538,6 +570,36 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
     },
   },
   {
+    name: 'RunReact',
+    description:
+      'Render an interactive React component. The `code` is TypeScript + ' +
+      'JSX (a single .tsx-style snippet) compiled with the typescript ' +
+      'package and executed in a sandboxed iframe with React 18. The ' +
+      'snippet must define a top-level component named `App`; the host ' +
+      'mounts `<App/>`. `React` and the common hooks (`useState`, ' +
+      '`useEffect`, `useRef`, `useMemo`, `useCallback`, `useReducer`, ' +
+      '`useContext`) are provided as globals — DO NOT write `import` ' +
+      'statements (no module loader exists in the sandbox). Returns ' +
+      '{ ok, compileErrors: [{message, line?, column?}], runtimeErrors: ' +
+      '[{message, stack?}] }. Compile errors come from typescript; ' +
+      'runtime errors are collected for ~750ms after mount via ' +
+      'window.onerror, unhandledrejection, and a top-level error boundary. ' +
+      'On either kind of error, fix the code and call RunReact again.',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description:
+            'TypeScript + React (TSX) source. Must define a component ' +
+            'named `App`. No imports.',
+        },
+      },
+      required: ['code'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'ListInputs',
     description:
       'List every input the agent can work with. Returns ' +
@@ -569,16 +631,37 @@ export interface AgentPromptFeatures {
   dataLoading?: boolean;
   runSql?: boolean;
   runPython?: boolean;
+  runReact?: boolean;
 }
 
+const DEFAULT_FEATURES: AgentPromptFeatures = {
+  dataLoading: true,
+  runSql: true,
+  runPython: true,
+  runReact: true,
+};
+
 export function buildAgentSystemPrompt(
-  features: AgentPromptFeatures = { dataLoading: true, runSql: true, runPython: true },
+  features: AgentPromptFeatures = DEFAULT_FEATURES,
 ): string {
   const parts = [baseMd];
   if (features.dataLoading) parts.push(dataLoadingMd);
   if (features.runSql) parts.push(runSqlMd);
   if (features.runPython) parts.push(runPythonMd);
+  if (features.runReact) parts.push(runReactMd);
   return parts.map((s) => s.trim()).join('\n\n');
+}
+
+export function buildAgentTools(
+  features: AgentPromptFeatures = DEFAULT_FEATURES,
+): AgentToolSpec[] {
+  return AGENT_TOOLS.filter((tool) => {
+    if (tool.name === 'LoadData') return !!features.dataLoading;
+    if (tool.name === 'RunSQL') return !!features.runSql;
+    if (tool.name === 'RunPython') return !!features.runPython;
+    if (tool.name === 'RunReact') return !!features.runReact;
+    return true;
+  });
 }
 
 export const AGENT_SYSTEM_PROMPT = buildAgentSystemPrompt();

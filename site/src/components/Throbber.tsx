@@ -26,6 +26,10 @@ export default function Throbber() {
     if (isBusy(snap.sql.status)) labels.push('Running SQL');
     if (isBusy(snap.python.status)) labels.push('Running Python');
     if (snap.llm.compacting) labels.push('Compacting');
+    else if (snap.llm.preparingToolCall && labels.length === 0) {
+      const name = snap.llm.preparingToolCall.name;
+      labels.push(name ? `Calling ${name}…` : 'Preparing tool call…');
+    }
     else if (snap.llm.active && labels.length === 0) labels.push('Thinking');
   }
 

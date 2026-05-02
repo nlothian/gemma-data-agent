@@ -19,7 +19,11 @@ import useChatSidebarWidth, {
 import { useAttentionShake } from '../hooks/useAttentionShake';
 import { streamChat, type StreamChatMessage } from '../lib/streamChat';
 import { generateId } from '../lib/browser';
-import { AGENT_SYSTEM_PROMPT, AGENT_TOOLS } from '../lib/agentTools';
+import {
+  buildAgentSystemPrompt,
+  buildAgentTools,
+  type AgentPromptFeatures,
+} from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
@@ -46,6 +50,7 @@ import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
   ChatAddOnIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   CloseIcon,
   CompressIcon,
@@ -61,6 +66,14 @@ import {
 } from '../lib/parseAssistantContent';
 
 const MARKDOWN_PLUGINS = [remarkGfm];
+
+const AGENT_FEATURES_STORAGE_KEY = 'agentFeatures';
+const DEFAULT_AGENT_FEATURES: AgentPromptFeatures = {
+  dataLoading: true,
+  runSql: true,
+  runPython: true,
+  runReact: true,
+};
 
 let hydratePromise: Promise<void> | null = null;
 
@@ -285,6 +298,43 @@ export default function ChatSidebar() {
   const [highlightCompactedId, setHighlightCompactedId] = useState<string | null>(
     null,
   );
+  const [features, setFeatures] = useState<AgentPromptFeatures>(() => {
+    const raw = localStorage.getItem(AGENT_FEATURES_STORAGE_KEY);
+    if (!raw) return DEFAULT_AGENT_FEATURES;
+    try {
+      const parsed = JSON.parse(raw) as Partial<AgentPromptFeatures>;
+      return {
+        dataLoading: parsed.dataLoading ?? true,
+        runSql: parsed.runSql ?? true,
+        runPython: parsed.runPython ?? true,
+        runReact: parsed.runReact ?? true,
+      };
+    } catch {
+      return DEFAULT_AGENT_FEATURES;
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem(AGENT_FEATURES_STORAGE_KEY, JSON.stringify(features));
+  }, [features]);
+  const [featuresMenuOpen, setFeaturesMenuOpen] = useState(false);
+  const featuresMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!featuresMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!featuresMenuRef.current?.contains(e.target as Node)) {
+        setFeaturesMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFeaturesMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [featuresMenuOpen]);
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useChatSidebarWidth();
   const debugger_ = useSyncExternalStore(
     toolDebugger.subscribe,
@@ -437,16 +487,16 @@ export default function ChatSidebar() {
       const thinkingEnabled =
         config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false;
       const prompt = renderConversationForGemma(
-        AGENT_SYSTEM_PROMPT + buildCompactionContext(msgs),
+        buildAgentSystemPrompt(features) + buildCompactionContext(msgs),
         mapMessagesForLLM(msgs),
-        AGENT_TOOLS,
+        buildAgentTools(features),
         thinkingEnabled,
       );
       const tokens = sizeInTokens(prompt);
       if (tokens === null) return null;
       return { input: tokens, output: 0 };
     },
-    [config],
+    [config, features],
   );
 
   const sendPrompt = useCallback(
@@ -484,7 +534,10 @@ export default function ChatSidebar() {
       const compactionContext = buildCompactionContext(history.messages);
       const priorTurns = mapMessagesForLLM(history.messages);
       const requestMessages: StreamChatMessage[] = [
-        { role: 'system', content: AGENT_SYSTEM_PROMPT + compactionContext },
+        {
+          role: 'system',
+          content: buildAgentSystemPrompt(features) + compactionContext,
+        },
         ...priorTurns,
         { role: 'user', content: trimmed },
       ];
@@ -501,7 +554,7 @@ export default function ChatSidebar() {
       await streamChat({
         config,
         messages: requestMessages,
-        tools: AGENT_TOOLS,
+        tools: buildAgentTools(features),
         signal: controller.signal,
         onToken: (delta) => updateLastAssistant(delta),
         onHistoryDelta: (delta) => appendLastAssistantHistory(delta),
@@ -510,6 +563,7 @@ export default function ChatSidebar() {
           flush();
           setIsStreaming(false);
           executionPanelStore.setLlmActive(false);
+          executionPanelStore.setLlmPreparingToolCall(null);
           abortRef.current = null;
           // Defer to the next tick so React has committed the final
           // history updates from the streaming callbacks; otherwise
@@ -530,6 +584,7 @@ export default function ChatSidebar() {
         onError: (err) => {
           setIsStreaming(false);
           executionPanelStore.setLlmActive(false);
+          executionPanelStore.setLlmPreparingToolCall(null);
           abortRef.current = null;
 
           if (isInputTooLongError(err)) {
@@ -577,6 +632,7 @@ export default function ChatSidebar() {
       appendMessage,
       config,
       estimatePostCompactionUsage,
+      features,
       flush,
       history.messages,
       isStreaming,
@@ -733,16 +789,73 @@ export default function ChatSidebar() {
                 {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
               </span>
             )}
-            <button
-              type="button"
-              className="chat-iconbtn"
-              onClick={onNewChat}
-              title="New chat"
-              aria-label="New chat"
-              disabled={!hasMessages && !isStreaming}
-            >
-              <ChatAddOnIcon size={18} />
-            </button>
+            <div className="chat-newchat-split" ref={featuresMenuRef}>
+              <button
+                type="button"
+                className="chat-iconbtn chat-newchat-main"
+                onClick={onNewChat}
+                title="New chat"
+                aria-label="New chat"
+                disabled={!hasMessages && !isStreaming}
+              >
+                <ChatAddOnIcon size={18} />
+              </button>
+              <button
+                type="button"
+                className="chat-iconbtn chat-newchat-menu-btn"
+                onClick={() => setFeaturesMenuOpen((v) => !v)}
+                title="Agent features"
+                aria-label="Agent features"
+                aria-haspopup="menu"
+                aria-expanded={featuresMenuOpen}
+              >
+                <ChevronDownIcon size={14} />
+              </button>
+              {featuresMenuOpen && (
+                <div className="chat-newchat-popover" role="menu">
+                  <label className="chat-newchat-feature">
+                    <input
+                      type="checkbox"
+                      checked={!!features.dataLoading}
+                      onChange={(e) =>
+                        setFeatures((f) => ({ ...f, dataLoading: e.target.checked }))
+                      }
+                    />
+                    Data Loading
+                  </label>
+                  <label className="chat-newchat-feature">
+                    <input
+                      type="checkbox"
+                      checked={!!features.runSql}
+                      onChange={(e) =>
+                        setFeatures((f) => ({ ...f, runSql: e.target.checked }))
+                      }
+                    />
+                    SQL
+                  </label>
+                  <label className="chat-newchat-feature">
+                    <input
+                      type="checkbox"
+                      checked={!!features.runPython}
+                      onChange={(e) =>
+                        setFeatures((f) => ({ ...f, runPython: e.target.checked }))
+                      }
+                    />
+                    Python
+                  </label>
+                  <label className="chat-newchat-feature">
+                    <input
+                      type="checkbox"
+                      checked={!!features.runReact}
+                      onChange={(e) =>
+                        setFeatures((f) => ({ ...f, runReact: e.target.checked }))
+                      }
+                    />
+                    React
+                  </label>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="chat-iconbtn chat-mobile-close"
