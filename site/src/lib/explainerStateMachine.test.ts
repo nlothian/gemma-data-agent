@@ -62,6 +62,45 @@ describe('explainerStateMachine', () => {
     });
   });
 
+  it('PENDING RunReact → paused-react with idle summary', () => {
+    const next = reduce(initialState, {
+      type: 'PENDING',
+      call: { toolName: 'RunReact', input: { code: 'export default () => <div/>' } },
+    });
+    expect(next).toEqual({
+      kind: 'paused-react',
+      code: 'export default () => <div/>',
+      summary: { status: 'idle' },
+    });
+  });
+
+  it('PENDING with the same RunReact code returns the same state reference', () => {
+    const first = reduce(initialState, {
+      type: 'PENDING',
+      call: { toolName: 'RunReact', input: { code: 'A' } },
+    });
+    const second = reduce(first, {
+      type: 'PENDING',
+      call: { toolName: 'RunReact', input: { code: 'A' } },
+    });
+    expect(second).toBe(first);
+  });
+
+  it('a full LOADING → READY sequence applied to a paused-react state lands a ready summary', () => {
+    let s: ExplainerState = reduce(initialState, {
+      type: 'PENDING',
+      call: { toolName: 'RunReact', input: { code: 'export default () => <div/>' } },
+    });
+    const k = summaryKey(s)!;
+    expect(k).toBe('react:export default () => <div/>');
+    s = reduce(s, { type: 'SUMMARY_LOADING', key: k });
+    s = reduce(s, { type: 'SUMMARY_READY', key: k, text: 'Renders an empty div.' });
+    expect(s).toMatchObject({
+      kind: 'paused-react',
+      summary: { status: 'ready', text: 'Renders an empty div.' },
+    });
+  });
+
   it('PENDING LoadData → paused-load with the URL', () => {
     const next = reduce(initialState, {
       type: 'PENDING',

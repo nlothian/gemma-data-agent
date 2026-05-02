@@ -21,16 +21,28 @@ function App() {
 }
 ```
 
-## Globals (no imports, no third-party libs)
+## Globals and imports
 
-`React` is a global, and so are the common hooks: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback`, `useReducer`, `useContext`. **Do not write `import` statements** — there is no module loader in the sandbox; imports compile through but throw at runtime. Only React 18 + the DOM + standard browser APIs are available; libraries like `recharts`, `lodash`, etc. are not.
+`React` is a global, and so are the common hooks: `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback`, `useReducer`, `useContext`. You can use those directly, or write the more idiomatic form:
+
+```tsx
+import React, { useState } from 'react';
+```
+
+Only `"react"` and `"react-dom"` (and `"react-dom/client"`) can be imported — both resolve to the React 18 globals via a CommonJS shim. Any other import (`recharts`, `lodash`, CSS, …) will throw `Module "X" is not available in the React sandbox` at runtime. Only React 18 + the DOM + standard browser APIs are available.
 
 ## Sandbox
 
 The iframe is `sandbox="allow-scripts"` with a `null` origin. It cannot read host cookies, `localStorage`, the parent DOM, or other tabs. `fetch` works but cross-origin reads need CORS.
 
+## Environment notes
+
+- **Don't mount the component yourself.** The host calls `ReactDOM.createRoot(...).render(<App/>)`. Do not call `createRoot` / `render` / `hydrateRoot` in the snippet — it'll fight the host's mount.
+- **No data or file access.** The iframe can't see DuckDB tables, sandbox files, or anything `LoadData` produced. To display data, inline it as a literal in the snippet (compute the values in `RunPython` / `RunSQL` first and paste them in).
+- **Styling is inline or `<style>`.** `style={{...}}` props work directly. For class-based styling, include a `<style>` element inside `App`'s tree. CSS imports are not supported.
+
 ## Error symptom → cause
 
 - `App is not defined` → snippet didn't define an `App` component; rename your top-level component to `App`.
-- `Cannot use import statement outside a module` / `require is not defined` → strip `import` / `require` lines; use the `React` and hook globals directly.
+- `Module "X" is not available in the React sandbox` → you imported something other than `react`/`react-dom`; remove the import and inline the behaviour or pick a different approach.
 - `Invalid hook call` / `Hooks can only be called inside the body of a function component` → you called a hook outside `App` or in a regular helper; move it inside the component.

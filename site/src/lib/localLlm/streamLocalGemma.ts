@@ -100,12 +100,24 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     if (delta && onHistoryDelta) onHistoryDelta(delta);
   };
 
-  const reportUsage = (promptText: string, outputText: string): void => {
-    if (!onUsage) return;
-    const input = sizeInTokens(promptText);
-    const output = sizeInTokens(outputText);
-    if (input === null && output === null) return;
-    onUsage({ input: input ?? 0, output: output ?? 0 });
+  // Tokenizing the prompt is O(n) and the prompt doesn't change mid-turn, so
+  // the per-turn setup caches `inputTokens` once and the streaming reporter
+  // only re-tokenizes the growing assistant text.
+  const USAGE_THROTTLE_MS = 200;
+  const createTurnUsageReporter = (
+    promptText: string,
+  ): ((outputText: string, force?: boolean) => void) => {
+    if (!onUsage) return () => {};
+    const inputTokens = sizeInTokens(promptText);
+    let lastReportAt = 0;
+    return (outputText, force = false) => {
+      const now = performance.now();
+      if (!force && now - lastReportAt < USAGE_THROTTLE_MS) return;
+      lastReportAt = now;
+      const output = sizeInTokens(outputText);
+      if (inputTokens === null && output === null) return;
+      onUsage({ input: inputTokens ?? 0, output: output ?? 0 });
+    };
   };
 
   const modelId =
@@ -149,6 +161,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       }
 
       const prompt = renderConversationForGemma(systemPrompt, conv, tools ?? [], thinkingEnabled);
+      const reportTurnUsage = createTurnUsageReporter(prompt);
 
       // Two parallel buffers: `assistantTurnText` includes thought markers and
       // thought content for the UI; `assistantTurnHistory` strips them so past
@@ -230,6 +243,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
             handleEvent(e);
             if (pendingToolCall) break;
           }
+          reportTurnUsage(assistantTurnText);
         },
       });
 
@@ -251,12 +265,12 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           emitHistory(toolBuffer);
           toolBuffer = '';
         }
-        reportUsage(prompt, assistantTurnText);
+        reportTurnUsage(assistantTurnText, true);
         onDone(accumulatedText);
         return;
       }
 
-      reportUsage(prompt, assistantTurnText);
+      reportTurnUsage(assistantTurnText, true);
 
       const tc: { name: string; argsJson: string } = pendingToolCall;
       const toolCallToken = formatToolCallToken(tc.name, tc.argsJson);

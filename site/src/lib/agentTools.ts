@@ -578,8 +578,9 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
       'snippet must define a top-level component named `App`; the host ' +
       'mounts `<App/>`. `React` and the common hooks (`useState`, ' +
       '`useEffect`, `useRef`, `useMemo`, `useCallback`, `useReducer`, ' +
-      '`useContext`) are provided as globals — DO NOT write `import` ' +
-      'statements (no module loader exists in the sandbox). Returns ' +
+      '`useContext`) are available as globals; you may also `import` from ' +
+      '`"react"` or `"react-dom"` — those are shimmed to the same React 18 ' +
+      'runtime. No other modules are available. Returns ' +
       '{ ok, compileErrors: [{message, line?, column?}], runtimeErrors: ' +
       '[{message, stack?}] }. Compile errors come from typescript; ' +
       'runtime errors are collected for ~750ms after mount via ' +
@@ -592,7 +593,7 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
           type: 'string',
           description:
             'TypeScript + React (TSX) source. Must define a component ' +
-            'named `App`. No imports.',
+            'named `App`. Only `"react"` and `"react-dom"` can be imported.',
         },
       },
       required: ['code'],

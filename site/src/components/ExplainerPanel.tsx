@@ -43,13 +43,21 @@ export default function ExplainerPanel() {
   // would never be displayed. See comments in summariseCode.ts for why this
   // request must stay isolated from the agent's chat history.
   const language =
-    state.kind === 'paused-python' ? 'python' : state.kind === 'paused-sql' ? 'sql' : null;
+    state.kind === 'paused-python'
+      ? 'python'
+      : state.kind === 'paused-sql'
+        ? 'sql'
+        : state.kind === 'paused-react'
+          ? 'react'
+          : null;
   const code =
     state.kind === 'paused-python'
       ? state.code
       : state.kind === 'paused-sql'
         ? state.sql
-        : null;
+        : state.kind === 'paused-react'
+          ? state.code
+          : null;
   const endpoint = config.activeEndpoint;
 
   useEffect(() => {
@@ -114,6 +122,15 @@ function ExplainerBody({
     return (
       <>
         <p>The model wants to run SQL with the code above. Press the step button to continue.</p>
+        <SummaryView summary={state.summary} />
+      </>
+    );
+  }
+
+  if (state.kind === 'paused-react') {
+    return (
+      <>
+        <p>The model wants to render a React component with the code above. Press the step button to continue.</p>
         <SummaryView summary={state.summary} />
       </>
     );

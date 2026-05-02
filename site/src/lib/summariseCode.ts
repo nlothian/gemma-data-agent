@@ -17,19 +17,21 @@ import { callLLM } from './llm';
 import { isLocalGemmaEndpoint } from '../types/llm';
 import type { LLMConfig } from '../types/llm';
 
-export type SummaryLanguage = 'python' | 'sql';
+export type SummaryLanguage = 'python' | 'sql' | 'react';
 
 const SYSTEM_PROMPT =
   'You explain short code snippets in plain English for a non-technical reader. ' +
   'Reply with up to 3 sentences. Do not include code, markdown, or preamble.';
 
 function buildUserPrompt(language: SummaryLanguage, code: string): string {
-  const label = language === 'python' ? 'Python' : 'SQL';
+  const label =
+    language === 'python' ? 'Python' : language === 'sql' ? 'SQL' : 'React (TSX)';
+  const fence = language === 'react' ? 'tsx' : language;
   return (
     `Summarise this ${label} code into up to 3 sentences of English. ` +
     `Describe what the code does, not how it is written.\n\n` +
     '```' +
-    language +
+    fence +
     '\n' +
     code +
     '\n```'

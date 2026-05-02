@@ -28,7 +28,19 @@ export default function ExecutionPanel() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const active = snap.activeTab;
   const [codeFolded, setCodeFolded] = useState(false);
+  const [reactViewExpanded, setReactViewExpanded] = useState(false);
   const { height, setHeight } = useExecutionPanelHeight();
+
+  useEffect(() => {
+    if (reactViewExpanded) {
+      document.body.classList.add('react-view-expanded');
+      return () => document.body.classList.remove('react-view-expanded');
+    }
+  }, [reactViewExpanded]);
+
+  useEffect(() => {
+    if (active !== 'react' && reactViewExpanded) setReactViewExpanded(false);
+  }, [active, reactViewExpanded]);
 
   const [editedPython, setEditedPython] = useState<string | null>(null);
   const [editedSql, setEditedSql] = useState<string | null>(null);
@@ -269,8 +281,8 @@ export default function ExecutionPanel() {
             ) : (
               <ReactPanel
                 state={snap.react}
-                codeFolded={codeFolded}
-                onToggleFold={toggleFold}
+                expanded={reactViewExpanded}
+                onToggleExpand={() => setReactViewExpanded((v) => !v)}
               />
             )}
           </>

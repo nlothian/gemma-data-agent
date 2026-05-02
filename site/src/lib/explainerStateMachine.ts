@@ -24,6 +24,7 @@ export type ExplainerState =
   | { kind: 'running' }
   | { kind: 'paused-python'; code: string; summary: SummaryState }
   | { kind: 'paused-sql'; sql: string; summary: SummaryState }
+  | { kind: 'paused-react'; code: string; summary: SummaryState }
   | { kind: 'paused-load'; url: string }
   | { kind: 'paused-compaction'; messages: ChatMessage[] };
 
@@ -46,6 +47,7 @@ export const initialState: ExplainerState = { kind: 'empty' };
 export function summaryKey(state: ExplainerState): string | null {
   if (state.kind === 'paused-python') return `python:${state.code}`;
   if (state.kind === 'paused-sql') return `sql:${state.sql}`;
+  if (state.kind === 'paused-react') return `react:${state.code}`;
   return null;
 }
 
@@ -89,6 +91,11 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
         if (state.kind === 'paused-sql' && state.sql === sql) return state;
         return { kind: 'paused-sql', sql, summary: { status: 'idle' } };
       }
+      if (toolName === 'RunReact') {
+        const code = readString(input, 'code') ?? '';
+        if (state.kind === 'paused-react' && state.code === code) return state;
+        return { kind: 'paused-react', code, summary: { status: 'idle' } };
+      }
       if (toolName === 'LoadData') {
         const url = readString(input, 'url') ?? '';
         if (state.kind === 'paused-load' && state.url === url) return state;
@@ -103,7 +110,11 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
     case 'SUMMARY_LOADING':
     case 'SUMMARY_READY':
     case 'SUMMARY_ERROR': {
-      if (state.kind !== 'paused-python' && state.kind !== 'paused-sql') return state;
+      if (
+        state.kind !== 'paused-python' &&
+        state.kind !== 'paused-sql' &&
+        state.kind !== 'paused-react'
+      ) return state;
       if (summaryKey(state) !== event.key) return state;
       const next: SummaryState =
         event.type === 'SUMMARY_LOADING'

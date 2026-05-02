@@ -12,11 +12,11 @@ type SubTab = 'console' | 'view';
 
 interface ReactPanelProps {
   state: ReactPaneState;
-  codeFolded?: boolean;
-  onToggleFold?: () => void;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
 }
 
-export default function ReactPanel({ state, codeFolded = false, onToggleFold }: ReactPanelProps) {
+export default function ReactPanel({ state, expanded = false, onToggleExpand }: ReactPanelProps) {
   const [sub, setSub] = useState<SubTab>('console');
   const viewRef = useRef<HTMLDivElement>(null);
 
@@ -66,17 +66,17 @@ export default function ReactPanel({ state, codeFolded = false, onToggleFold }: 
           active={sub === 'view'}
           onClick={() => setSub('view')}
         />
-        {sub === 'view' && onToggleFold && (
+        {sub === 'view' && onToggleExpand && (
           <button
             type="button"
             className="exec-expand-btn"
-            onClick={onToggleFold}
-            aria-pressed={codeFolded}
-            aria-label={codeFolded ? 'Restore code panel' : 'Expand view'}
-            title={codeFolded ? 'Restore code panel' : 'Expand view'}
+            onClick={onToggleExpand}
+            aria-pressed={expanded}
+            aria-label={expanded ? 'Restore panels' : 'Expand view'}
+            title={expanded ? 'Restore panels' : 'Expand view'}
           >
-            {codeFolded ? <MinimizeIcon size={14} /> : <MaximizeIcon size={14} />}
-            <span>{codeFolded ? 'Restore' : 'Expand'}</span>
+            {expanded ? <MinimizeIcon size={14} /> : <MaximizeIcon size={14} />}
+            <span>{expanded ? 'Restore' : 'Expand'}</span>
           </button>
         )}
       </div>

@@ -1239,6 +1239,21 @@ body.has-chat main.container:has(section.exec-panel) {
   position: relative;
 }
 
+body.react-view-expanded .explainer-panel {
+  display: none;
+}
+body.react-view-expanded .exec-panel {
+  flex: 1;
+  height: auto !important;
+  max-height: none;
+}
+body.react-view-expanded .exec-panel .exec-editor-section {
+  display: none;
+}
+body.react-view-expanded .exec-panel .exec-resize-handle {
+  display: none;
+}
+
 .exec-resize-handle {
   position: absolute;
   bottom: 0;

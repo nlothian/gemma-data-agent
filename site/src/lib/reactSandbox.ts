@@ -86,7 +86,11 @@ export async function compileReactSnippet(code: string): Promise<CompileOutcome>
   const result = ts.transpileModule(code, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.None,
+      // CommonJS so `import React from 'react'` (which the agent often emits
+      // despite the prompt asking it not to) compiles to `require('react')`.
+      // The sandbox bootstrap installs a `require` shim that maps known
+      // specifiers to the React/ReactDOM globals.
+      module: ts.ModuleKind.CommonJS,
       jsx: ts.JsxEmit.React,
       jsxFactory: 'React.createElement',
       jsxFragmentFactory: 'React.Fragment',
@@ -146,6 +150,15 @@ function buildSrcdoc(userJs: string, reactUrl: string, reactDomUrl: string): str
   window.useCallback = R.useCallback;
   window.useReducer = R.useReducer;
   window.useContext = R.useContext;
+
+  // Shim CommonJS require for the handful of specifiers the agent commonly
+  // emits via \`import React from 'react'\` etc. Anything else throws so the
+  // failure surfaces in the runtime-error list with a useful message.
+  window.require = function(spec){
+    if (spec === 'react') return R;
+    if (spec === 'react-dom' || spec === 'react-dom/client') return RD;
+    throw new Error('Module "' + spec + '" is not available in the React sandbox. Only "react" and "react-dom" can be imported.');
+  };
 
   function send(type, payload) {
     try { parent.postMessage({ source: 'react-sandbox', type: type, payload: payload }, '*'); } catch(e) {}
