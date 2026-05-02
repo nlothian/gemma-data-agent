@@ -332,13 +332,34 @@ export async function resolveFileHandle(
   if (!currentHandle) {
     throw new Error('No sandbox directory selected.');
   }
+  // Prefer the cached handle from the most recent enumeration: dir.values()
+  // sometimes yields names that getFileHandle/getDirectoryHandle then refuse
+  // to look up by name (e.g. anything containing ':'), and we already hold a
+  // valid handle from the walk. Fall through to path-based lookup only for
+  // files added after enumeration.
+  const cached = state.files.find((f) => f.relativePath === relativePath);
+  if (cached) return cached.fileHandle;
+
   const segments = relativePath.split('/').filter((s) => s.length > 0);
   if (segments.length === 0) {
     throw new Error(`Empty sandbox path.`);
   }
   let dir: FileSystemDirectoryHandle = currentHandle;
   for (let i = 0; i < segments.length - 1; i++) {
-    dir = await dir.getDirectoryHandle(segments[i]!);
+    try {
+      dir = await dir.getDirectoryHandle(segments[i]!);
+    } catch (err) {
+      throw new Error(
+        `Cannot resolve sandbox path "${relativePath}" — directory segment "${segments[i]}" was rejected: ${(err as Error).message}`,
+      );
+    }
   }
-  return await dir.getFileHandle(segments[segments.length - 1]!);
+  const finalSegment = segments[segments.length - 1]!;
+  try {
+    return await dir.getFileHandle(finalSegment);
+  } catch (err) {
+    throw new Error(
+      `Cannot resolve sandbox path "${relativePath}" — file segment "${finalSegment}" was rejected: ${(err as Error).message}`,
+    );
+  }
 }

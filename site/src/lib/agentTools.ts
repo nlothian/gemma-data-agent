@@ -1,4 +1,7 @@
-import agentSystemPromptMd from '../prompts/agentSystemPrompt.md?raw';
+import baseMd from '../prompts/agent/base.md?raw';
+import dataLoadingMd from '../prompts/agent/dataLoading.md?raw';
+import runSqlMd from '../prompts/agent/runSql.md?raw';
+import runPythonMd from '../prompts/agent/runPython.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -387,7 +390,12 @@ export async function runAgentTool(
     return runListInputs();
   }
   if (name === 'LoadData') {
-    const url = typeof obj.url === 'string' ? obj.url : '';
+    const rawUrl = typeof obj.url === 'string' ? obj.url : '';
+    // The agent occasionally invents a `sandbox:` (or `file:`) URI scheme for
+    // local paths even though the docs ask for a bare relative path. Strip
+    // those prefixes so the lookup works instead of failing the FS Access
+    // name validator with "Name is not allowed".
+    const url = rawUrl.replace(/^(?:sandbox:|file:\/\/)/, '');
     const tableName = typeof obj.table_name === 'string' ? obj.table_name : '';
     const fmt = typeof obj.format === 'string' ? obj.format : undefined;
     const format =
@@ -438,7 +446,11 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
           description:
             'Public URL of a remote data file, or a path relative to the ' +
             'user\'s sandbox directory (e.g. "reports/sales.csv"). Strings ' +
-            'containing "://" are URLs.',
+            'containing "://" are URLs. For sandbox files, pass the ' +
+            '`sourcePath` from ListInputs verbatim — do NOT add a URI ' +
+            'scheme like "sandbox:" or "file://", and do NOT prepend a ' +
+            'leading "/". Adding any of those produces a "Name is not ' +
+            'allowed" error from the browser file API.',
         },
         table_name: {
           type: 'string',
@@ -553,4 +565,20 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
   },
 ];
 
-export const AGENT_SYSTEM_PROMPT = agentSystemPromptMd.trim();
+export interface AgentPromptFeatures {
+  dataLoading?: boolean;
+  runSql?: boolean;
+  runPython?: boolean;
+}
+
+export function buildAgentSystemPrompt(
+  features: AgentPromptFeatures = { dataLoading: true, runSql: true, runPython: true },
+): string {
+  const parts = [baseMd];
+  if (features.dataLoading) parts.push(dataLoadingMd);
+  if (features.runSql) parts.push(runSqlMd);
+  if (features.runPython) parts.push(runPythonMd);
+  return parts.map((s) => s.trim()).join('\n\n');
+}
+
+export const AGENT_SYSTEM_PROMPT = buildAgentSystemPrompt();
