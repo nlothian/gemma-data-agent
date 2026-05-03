@@ -37,6 +37,7 @@ interface LlmInferenceLike {
     onUpdate: (partial: string, done: boolean) => void,
   ) => void;
   cancelProcessing?: () => void;
+  clearCancelSignals?: () => void;
   close?: () => void;
   sizeInTokens?: (text: string) => number | null;
 }
@@ -180,6 +181,17 @@ export async function generate(opts: GenerateOptions): Promise<string> {
   const inference = currentInference;
   if (!inference) {
     throw new Error('Local Gemma model is not loaded. Call ensureLoaded() first.');
+  }
+
+  // Reset MediaPipe's internal cancel flag before issuing a new decode. If the
+  // prior generation was cut short by `cancelProcessing()` (e.g. when the
+  // streaming parser detected a tool call), leaving the cancel signal set
+  // causes the next `generateResponse` to fail with a packet-timestamp
+  // mismatch on the `token_cost_in` calculator stream.
+  try {
+    inference.clearCancelSignals?.();
+  } catch {
+    // ignore — never block a generation on a reset failure
   }
 
   let resolveMpDone: () => void = () => {};

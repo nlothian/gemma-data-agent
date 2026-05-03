@@ -1,7 +1,7 @@
 import { runAgentTool } from '../agentTools';
 import { isAbortError, type StreamChatOptions } from '../streamChat';
 import { DEFAULT_LOCAL_GEMMA_ID, getLocalGemmaModel, type LocalGemmaId } from './models';
-import { ensureLoaded, generate, cancel as cancelGenerate, sizeInTokens } from './llmService';
+import { ensureLoaded, generate, sizeInTokens } from './llmService';
 import {
   formatToolCallToken,
   formatToolResponseToken,
@@ -100,24 +100,19 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     if (delta && onHistoryDelta) onHistoryDelta(delta);
   };
 
-  // Tokenizing the prompt is O(n) and the prompt doesn't change mid-turn, so
-  // the per-turn setup caches `inputTokens` once and the streaming reporter
-  // only re-tokenizes the growing assistant text.
-  const USAGE_THROTTLE_MS = 200;
-  const createTurnUsageReporter = (
-    promptText: string,
-  ): ((outputText: string, force?: boolean) => void) => {
-    if (!onUsage) return () => {};
-    const inputTokens = sizeInTokens(promptText);
-    let lastReportAt = 0;
-    return (outputText, force = false) => {
-      const now = performance.now();
-      if (!force && now - lastReportAt < USAGE_THROTTLE_MS) return;
-      lastReportAt = now;
-      const output = sizeInTokens(outputText);
-      if (inputTokens === null && output === null) return;
-      onUsage({ input: inputTokens ?? 0, output: output ?? 0 });
-    };
+  // Token usage is reported once per turn, only after `await generate()` has
+  // resolved. `sizeInTokens` re-enters the same MediaPipe `LlmInference` graph
+  // as `generateResponse`, so calling it while a decode is in flight (e.g.
+  // from inside an `onToken` callback) pushes packets through the
+  // `token_cost_in` stream and desyncs its timestamp counter, surfacing as
+  //   "Packet timestamp mismatch ... token_cost_in"
+  // on the next decode. Calling it between turns is safe.
+  const reportUsage = (promptText: string, outputText: string): void => {
+    if (!onUsage) return;
+    const input = sizeInTokens(promptText);
+    const output = sizeInTokens(outputText);
+    if (input === null && output === null) return;
+    onUsage({ input: input ?? 0, output: output ?? 0 });
   };
 
   const modelId =
@@ -161,7 +156,6 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       }
 
       const prompt = renderConversationForGemma(systemPrompt, conv, tools ?? [], thinkingEnabled);
-      const reportTurnUsage = createTurnUsageReporter(prompt);
 
       // Two parallel buffers: `assistantTurnText` includes thought markers and
       // thought content for the UI; `assistantTurnHistory` strips them so past
@@ -220,11 +214,12 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           // the relevant pane to pending and the throbber will surface
           // "Running Python" / "Running SQL" instead.
           setLlmPreparingToolCall(null);
-          try {
-            cancelGenerate();
-          } catch {
-            // ignore
-          }
+          // Don't call `cancelGenerate()` here. Cancelling MediaPipe mid-decode
+          // leaves its CalculatorGraph in a state where the next
+          // `generateResponse` fails with a `token_cost_in` packet-timestamp
+          // mismatch. Subsequent tokens are already discarded by the
+          // `pendingToolCall` short-circuit in `onToken` below, so letting the
+          // decode finish naturally costs only a few extra tokens of compute.
         } else {
           setLlmPreparingToolCall(extractPreparingToolCall(toolBuffer));
           const streaming = extractStreamingCode(toolBuffer);
@@ -243,7 +238,6 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
             handleEvent(e);
             if (pendingToolCall) break;
           }
-          reportTurnUsage(assistantTurnText);
         },
       });
 
@@ -265,12 +259,12 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           emitHistory(toolBuffer);
           toolBuffer = '';
         }
-        reportTurnUsage(assistantTurnText, true);
+        reportUsage(prompt, assistantTurnText);
         onDone(accumulatedText);
         return;
       }
 
-      reportTurnUsage(assistantTurnText, true);
+      reportUsage(prompt, assistantTurnText);
 
       const tc: { name: string; argsJson: string } = pendingToolCall;
       const toolCallToken = formatToolCallToken(tc.name, tc.argsJson);

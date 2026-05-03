@@ -12,6 +12,7 @@ import { COMPACTION_TOOL_NAME } from '../lib/autoCompaction';
 const EXPLAINABLE_TOOLS = new Set([
   'RunPython',
   'RunSQL',
+  'RunReact',
   'LoadData',
   COMPACTION_TOOL_NAME,
 ]);
@@ -51,7 +52,7 @@ interface Layout {
 }
 
 function codeAreaSelector(toolName: string): string | null {
-  if (toolName === 'RunPython' || toolName === 'RunSQL') {
+  if (toolName === 'RunPython' || toolName === 'RunSQL' || toolName === 'RunReact') {
     return '.exec-editor-section';
   }
   if (toolName === 'LoadData') return '.data-panel';

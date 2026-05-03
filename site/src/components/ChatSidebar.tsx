@@ -480,7 +480,8 @@ export default function ChatSidebar() {
   // Compute the post-compaction prompt size for the local-Gemma path so the
   // gauge reflects the surviving context immediately instead of resetting to
   // zero. Cloud endpoints have no client-side tokenizer — return null to fall
-  // back to the next response's usage event.
+  // back to the next response's usage event. Safe to call `sizeInTokens` here
+  // because compaction has already resolved (no MediaPipe decode in flight).
   const estimatePostCompactionUsage = useCallback(
     (msgs: ChatMessage[]): TokenUsage | null => {
       if (!isLocalGemmaEndpoint(config.activeEndpoint)) return null;
