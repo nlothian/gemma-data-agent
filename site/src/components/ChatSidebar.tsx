@@ -50,10 +50,12 @@ import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
   ChatAddOnIcon,
+  CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CloseIcon,
   CompressIcon,
+  CopyIcon,
   PauseIcon,
   PlayIcon,
   StepIcon,
@@ -255,15 +257,51 @@ function renderMessageBody(m: ChatMessage, isPending: boolean) {
   return m.content;
 }
 
+function getCopyText(m: ChatMessage): string {
+  if (m.role === 'assistant' && !m.error) {
+    return parseAssistantContent(m.content)
+      .filter((seg) => seg.kind === 'text')
+      .map((seg) => (seg as { kind: 'text'; text: string }).text)
+      .join('')
+      .trim();
+  }
+  return m.content;
+}
+
+function CopyBubbleButton({ message }: { message: ChatMessage }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = useCallback(() => {
+    const text = getCopyText(message);
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  }, [message]);
+  return (
+    <button
+      type="button"
+      className="chat-msg-copy"
+      onClick={onCopy}
+      aria-label={copied ? 'Copied' : 'Copy message'}
+      title={copied ? 'Copied' : 'Copy'}
+    >
+      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+    </button>
+  );
+}
+
 const ChatMessageRow = memo(function ChatMessageRow({
   message,
   isPending,
   onRetry,
 }: ChatMessageRowProps) {
   const m = message;
+  const showCopy = !isPending && !!m.content;
   return (
     <div className={`chat-row chat-row-${m.role}`}>
       <div className={'chat-msg chat-msg-' + (m.error ? 'error' : m.role)}>
+        {showCopy && <CopyBubbleButton message={m} />}
         {renderMessageBody(m, isPending)}
       </div>
       {m.error && (

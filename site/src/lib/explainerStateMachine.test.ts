@@ -270,6 +270,7 @@ const ANTHROPIC_CONFIG: LLMConfig = {
   customEndpoints: [],
   apiKeys: { 'https://api.anthropic.com/v1': 'sk-test' },
   models: { 'https://api.anthropic.com/v1': 'claude-test' },
+  thinkingEnabled: {},
 };
 
 describe('runSummarisation orchestration', () => {

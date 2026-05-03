@@ -7,6 +7,7 @@ const ANTHROPIC_CONFIG: LLMConfig = {
   customEndpoints: [],
   apiKeys: { 'https://api.anthropic.com/v1': 'sk-test' },
   models: { 'https://api.anthropic.com/v1': 'claude-test' },
+  thinkingEnabled: {},
 };
 
 const OPENAI_CONFIG: LLMConfig = {
@@ -14,6 +15,7 @@ const OPENAI_CONFIG: LLMConfig = {
   customEndpoints: [],
   apiKeys: { 'https://api.openai.com/v1': 'sk-test' },
   models: { 'https://api.openai.com/v1': 'gpt-test' },
+  thinkingEnabled: {},
 };
 
 beforeEach(() => {
@@ -24,7 +26,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function mockFetchOnce(payload: unknown): ReturnType<typeof vi.spyOn> {
+function mockFetchOnce(payload: unknown) {
   return vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
     new Response(JSON.stringify(payload), {
       status: 200,
@@ -40,6 +42,7 @@ describe('summariseCode (cloud endpoints)', () => {
       customEndpoints: [],
       apiKeys: {},
       models: {},
+      thinkingEnabled: {},
     };
     await expect(summariseCode('python', 'x = 1', empty)).rejects.toThrow(/endpoint/i);
   });
@@ -124,6 +127,7 @@ describe('summariseCode (cloud endpoints)', () => {
       customEndpoints: [],
       apiKeys: {},
       models: {},
+      thinkingEnabled: {},
     };
     const result = await fresh.summariseCode('python', 'print("hi")', config);
     expect(result).toBe('Gemma summary.');

@@ -759,12 +759,45 @@ body.chat-resizing {
 }
 
 .chat-msg {
+  position: relative;
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-12);
   font-size: 14px;
   line-height: 1.5;
   word-wrap: break-word;
   overflow-wrap: anywhere;
+}
+.chat-msg-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-4);
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.chat-msg:hover .chat-msg-copy,
+.chat-msg-copy:focus-visible {
+  opacity: 0.85;
+}
+.chat-msg-copy:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.16);
+}
+.chat-msg-user .chat-msg-copy {
+  background: rgba(255, 255, 255, 0.2);
+}
+.chat-msg-user .chat-msg-copy:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 /* Plain-text bubbles preserve user newlines; assistant bubbles render markdown blocks instead. */
 .chat-msg-user,

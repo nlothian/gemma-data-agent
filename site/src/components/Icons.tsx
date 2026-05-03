@@ -47,3 +47,5 @@ export const MinimizeIcon = (p: IconProps) => <MaterialIcon name="close_fullscre
 export const LoaderIcon = (p: IconProps) => <MaterialIcon name="progress_activity" {...p} />;
 export const ChatAddOnIcon = (p: IconProps) => <MaterialIcon name="chat_add_on" {...p} />;
 export const InfoIcon = (p: IconProps) => <MaterialIcon name="info" {...p} />;
+export const CopyIcon = (p: IconProps) => <MaterialIcon name="content_copy" {...p} />;
+export const CheckIcon = (p: IconProps) => <MaterialIcon name="check" {...p} />;

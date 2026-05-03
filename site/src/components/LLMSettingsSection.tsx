@@ -7,7 +7,7 @@ import {
 } from './Icons';
 import ModelPickerCell from './ModelPickerCell';
 import useLLMConfig from '../hooks/useLLMConfig';
-import useProviderModels from '../hooks/useProviderModels';
+import useProviderModels, { type ProviderModelsEntry } from '../hooks/useProviderModels';
 import {
   BUILT_IN_PROVIDERS,
   LOCAL_GEMMA_ENDPOINT,
