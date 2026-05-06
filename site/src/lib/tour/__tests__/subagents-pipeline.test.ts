@@ -20,6 +20,12 @@ describe('subagents-pipeline stage', () => {
     }
   });
 
+  it('spotlights both the conversation and the execution panel', () => {
+    expect(subAgentsPipeline.cutouts).toEqual(
+      expect.arrayContaining(['chat.conversation', 'exec.panel']),
+    );
+  });
+
   it('starts from a fresh chat by clearing first', () => {
     const first = (subAgentsPipeline.onEnter ?? [])[0];
     expect(first?.action).toBe('newChat');
