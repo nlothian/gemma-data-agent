@@ -58,6 +58,7 @@ will fail if a non-optional id is missing from the components.
 | `chat.playButton`            | Play button                            | yes      |
 | `chat.conversation`          | Conversation message list              | no       |
 | `chat.compactionRunButton`   | Compact / Run compaction button        | yes      |
+| `exec.panel`                 | Execution panel (tabs + body)          | no       |
 | `exec.featureSelector`       | Feature selector trigger               | no       |
 | `exec.explainerPanel`        | Explainer panel                        | yes      |
 | `exec.codeEditor`            | Code editor section                    | yes      |

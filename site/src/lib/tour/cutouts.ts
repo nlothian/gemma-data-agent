@@ -13,6 +13,7 @@ export type CutoutId =
   | 'chat.playButton'
   | 'chat.conversation'
   | 'chat.compactionRunButton'
+  | 'exec.panel'
   | 'exec.featureSelector'
   | 'exec.explainerPanel'
   | 'exec.codeEditor'
@@ -69,6 +70,11 @@ export const CUTOUTS: Record<CutoutId, CutoutDef> = {
     selector: dt('chat.compactionRunButton'),
     label: 'Compact / Run compaction button',
     optional: true,
+  },
+  'exec.panel': {
+    id: 'exec.panel',
+    selector: dt('exec.panel'),
+    label: 'Execution panel (tabs + body)',
   },
   'exec.featureSelector': {
     id: 'exec.featureSelector',

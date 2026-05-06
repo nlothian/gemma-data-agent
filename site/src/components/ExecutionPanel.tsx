@@ -223,7 +223,12 @@ export default function ExecutionPanel() {
   );
 
   return (
-    <section className="exec-panel" style={{ height }} aria-label="Execution panel">
+    <section
+      className="exec-panel"
+      style={{ height }}
+      aria-label="Execution panel"
+      data-tour-id="exec.panel"
+    >
       <div className="exec-tabs" role="tablist">
         {tabVisible.data && (
           <TabButton
