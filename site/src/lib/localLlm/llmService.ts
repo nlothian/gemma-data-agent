@@ -8,11 +8,7 @@
 
 import { setLocalLlmDownloadProgress } from '../executionPanelStore';
 import { LOCAL_GEMMA_CONTEXT_WINDOW } from '../contextWindow';
-import {
-  getLocalGemmaModel,
-  type LocalGemmaId,
-  type LocalGemmaModel,
-} from './models';
+import { resolveActiveLocalModel } from './customModels';
 import {
   loadModelWithCache,
   streamWithProgress,
@@ -45,7 +41,7 @@ interface LlmInferenceLike {
 let mediapipePromise: Promise<MediapipeModule> | null = null;
 let filesetPromise: Promise<unknown> | null = null;
 
-let currentModel: LocalGemmaModel | null = null;
+let currentModel: { id: string; label: string } | null = null;
 let currentLoadPromise: Promise<LlmInferenceLike> | null = null;
 let currentInference: LlmInferenceLike | null = null;
 let currentLoadId = 0;
@@ -75,7 +71,7 @@ async function loadFileset(): Promise<unknown> {
   return filesetPromise;
 }
 
-export async function ensureLoaded(modelId: LocalGemmaId): Promise<void> {
+export async function ensureLoaded(modelId: string): Promise<void> {
   if (currentInference && currentModel?.id === modelId) return;
   if (currentLoadPromise && currentModel?.id === modelId) {
     await currentLoadPromise;
@@ -92,25 +88,36 @@ export async function ensureLoaded(modelId: LocalGemmaId): Promise<void> {
     currentModel = null;
   }
 
-  const model = getLocalGemmaModel(modelId);
-  if (!model) {
-    throw new Error(`Unknown local Gemma model: ${modelId}`);
+  const resolved = resolveActiveLocalModel(modelId);
+  if (!resolved) {
+    throw new Error(`Unknown local model: ${modelId}`);
   }
 
   const loadId = ++currentLoadId;
-  currentModel = model;
+  const label = resolved.label;
+  currentModel = { id: modelId, label };
 
   currentLoadPromise = (async (): Promise<LlmInferenceLike> => {
     const [mp, fileset] = await Promise.all([loadMediapipe(), loadFileset()]);
 
-    const { stream, size, fromCache } = await loadModelWithCache(model.url);
+    let stream: ReadableStream<Uint8Array>;
+    let size: number;
+    let fromCache: boolean;
+    if (resolved.kind === 'predefined') {
+      ({ stream, size, fromCache } = await loadModelWithCache(resolved.model.url));
+    } else {
+      // User-supplied .task — already on disk, skip OPFS entirely.
+      stream = resolved.model.file.stream();
+      size = resolved.model.file.size;
+      fromCache = true;
+    }
     const { stream: progressStream, progress } = streamWithProgress(stream, size);
 
-    setLocalLlmDownloadProgress({ label: model.label, pct: 0, fromCache });
+    setLocalLlmDownloadProgress({ label, pct: 0, fromCache });
     const unsub = progress.subscribe((p: ProgressUpdate) => {
       if (loadId !== currentLoadId) return;
       setLocalLlmDownloadProgress({
-        label: model.label,
+        label,
         pct: Math.round(p.progress * 100),
         fromCache,
       });

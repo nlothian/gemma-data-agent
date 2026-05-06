@@ -7,6 +7,7 @@ import useSandboxConfig, {
   useLoadedSandboxFiles,
 } from '../hooks/useSandboxConfig';
 import { invalidateAcrossCaches } from '../lib/cacheRegistry';
+import { clearAllInputs } from '../lib/duckdb';
 import { ChevronRightIcon, TrashIcon } from './Icons';
 import SandboxSettingsSection from './SandboxSettingsSection';
 
@@ -30,7 +31,7 @@ export default function DataPanel({
     !!errorMessage && /Access-Control-Allow-Origin|CORS/i.test(errorMessage);
 
   return (
-    <div className="data-panel" role="tabpanel">
+    <div className="data-panel" data-tour-id="exec.dataPanel" role="tabpanel">
       <SandboxSettingsCollapsible />
 
       {isPending && (
@@ -76,8 +77,7 @@ export default function DataPanel({
               type="button"
               className="data-clear-all"
               onClick={() => {
-                const names = new Set(tables.map((t) => t.name));
-                void invalidateAcrossCaches((m) => names.has(m.name));
+                void clearAllInputs();
               }}
             >
               <TrashIcon size={14} />
