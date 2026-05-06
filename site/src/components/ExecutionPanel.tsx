@@ -18,15 +18,34 @@ import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
 import ReactPanel from './ReactPanel';
 import SqlResultGrid from './SqlResultGrid';
+import SubAgentsPane from './SubAgentsPane';
+import * as subAgentStore from '../lib/subAgents/store';
 import { ChevronDownIcon, PlayIcon } from './Icons';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
 const REACT_PLACEHOLDER = '// Awaiting RunReact call';
 
+function deriveSubAgentStatus(
+  runs: ReadonlyArray<{ status: 'running' | 'done' | 'error' | 'aborted' }>,
+): PaneStatus {
+  if (runs.length === 0) return 'idle';
+  if (runs.some((r) => r.status === 'running')) return 'running';
+  const last = runs[runs.length - 1];
+  if (last.status === 'error') return 'error';
+  if (last.status === 'aborted') return 'aborted';
+  return 'done';
+}
+
 export default function ExecutionPanel() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const subAgents = useSyncExternalStore(
+    subAgentStore.subscribe,
+    subAgentStore.getSnapshot,
+    subAgentStore.getServerSnapshot,
+  );
   const active = snap.activeTab;
+  const subAgentStatus = deriveSubAgentStatus(subAgents.runs);
   const [codeFolded, setCodeFolded] = useState(false);
   const [reactViewExpanded, setReactViewExpanded] = useState(false);
   const { height, setHeight } = useExecutionPanelHeight();
@@ -186,9 +205,16 @@ export default function ExecutionPanel() {
           active={active === 'react'}
           status={snap.react.status}
         />
+        <TabButton
+          kind="subagents"
+          active={active === 'subagents'}
+          status={subAgentStatus}
+        />
       </div>
       <div className="exec-body">
-        {active === 'data' ? (
+        {active === 'subagents' ? (
+          <SubAgentsPane />
+        ) : active === 'data' ? (
           <DataPanel
             tables={snap.data.tables}
             status={snap.data.status}
@@ -315,6 +341,7 @@ function TabButton({ kind, active, status }: TabButtonProps) {
     kind === 'python' ? 'Python'
       : kind === 'sql' ? 'SQL'
       : kind === 'react' ? 'React'
+      : kind === 'subagents' ? 'SubAgents'
       : 'Data';
   return (
     <button

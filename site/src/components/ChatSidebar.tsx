@@ -1,5 +1,4 @@
 import {
-  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -8,8 +7,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import useLLMConfig from '../hooks/useLLMConfig';
 import useChatHistory from '../hooks/useChatHistory';
 import useChatSidebarWidth, {
@@ -45,29 +42,23 @@ import {
 } from '../lib/autoCompaction';
 import { renderConversationForGemma } from '../lib/localLlm/toolPrompt';
 import { isInputTooLongError, sizeInTokens } from '../lib/localLlm/llmService';
+import * as subAgentStore from '../lib/subAgents/store';
+import { setSubAgentContext } from '../lib/subAgents/context';
 import type { TokenUsage } from '../lib/tokenUsageStore';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
   ChatAddOnIcon,
-  CheckIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   CloseIcon,
   CompressIcon,
-  CopyIcon,
   PauseIcon,
   PlayIcon,
   StepIcon,
 } from './Icons';
 import Throbber from './Throbber';
 import PressureIndicator from './PressureIndicator';
-import {
-  parseAssistantContent,
-  type AssistantSegment,
-} from '../lib/parseAssistantContent';
-
-const MARKDOWN_PLUGINS = [remarkGfm];
+import MessagesView from './MessagesView';
 
 const AGENT_FEATURES_STORAGE_KEY = 'agentFeatures';
 const DEFAULT_AGENT_FEATURES: AgentPromptFeatures = {
@@ -75,6 +66,7 @@ const DEFAULT_AGENT_FEATURES: AgentPromptFeatures = {
   runSql: true,
   runPython: true,
   runReact: true,
+  runSubAgent: true,
 };
 
 let hydratePromise: Promise<void> | null = null;
@@ -94,228 +86,6 @@ function hydrateOnce(): Promise<void> {
   })();
   return hydratePromise;
 }
-
-const MARKDOWN_COMPONENTS = {
-  a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a {...props} target="_blank" rel="noopener noreferrer" />
-  ),
-};
-
-interface ChatMessageRowProps {
-  message: ChatMessage;
-  isPending: boolean;
-  onRetry: (id: string) => void;
-}
-
-function CollapsibleThinking({ text, done }: { text: string; done: boolean }) {
-  const [expanded, setExpanded] = useState(true);
-  const autoCollapsedRef = useRef(false);
-  useEffect(() => {
-    if (done && !autoCollapsedRef.current) {
-      autoCollapsedRef.current = true;
-      setExpanded(false);
-    }
-  }, [done]);
-  return (
-    <div className="chat-thinking-block">
-      <button
-        type="button"
-        className="chat-tool-summary"
-        data-expanded={expanded ? 'true' : 'false'}
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <ChevronRightIcon size={14} />
-        <span className="chat-tool-name">Thinking</span>
-        {!done && <span className="chat-thinking-pulse" aria-hidden="true" />}
-      </button>
-      {expanded && (
-        <div className="chat-tool-body">
-          <pre>
-            <code>{text || (done ? '' : '…')}</code>
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CollapsibleToolCall({
-  name,
-  args,
-  result,
-}: {
-  name: string;
-  args: string;
-  result: string | null;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="chat-tool-call">
-      <button
-        type="button"
-        className="chat-tool-summary"
-        data-expanded={expanded ? 'true' : 'false'}
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <ChevronRightIcon size={14} />
-        <span className="chat-tool-name">{name}</span>
-      </button>
-      {expanded && (
-        <div className="chat-tool-body">
-          <pre>
-            <code>{args || '{}'}</code>
-          </pre>
-          {result === null ? (
-            <div className="chat-tool-running">running…</div>
-          ) : (
-            <pre>
-              <code>{result}</code>
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CollapsibleCompacted({
-  summary,
-  highlight,
-}: {
-  summary: string;
-  highlight: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div
-      className={'chat-compacted' + (highlight ? ' chat-compacted--attention' : '')}
-    >
-      <button
-        type="button"
-        className="chat-tool-summary"
-        data-expanded={expanded ? 'true' : 'false'}
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <ChevronRightIcon size={14} />
-        <span className="chat-tool-name">Compacted</span>
-      </button>
-      {expanded && (
-        <div className="chat-tool-body">
-          <pre>
-            <code>{summary}</code>
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AssistantBody({ content }: { content: string }) {
-  const segments = useMemo<AssistantSegment[]>(
-    () => parseAssistantContent(content),
-    [content],
-  );
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (seg.kind === 'text') {
-          if (!seg.text.trim()) return null;
-          return (
-            <ReactMarkdown
-              key={i}
-              remarkPlugins={MARKDOWN_PLUGINS}
-              components={MARKDOWN_COMPONENTS}
-            >
-              {seg.text}
-            </ReactMarkdown>
-          );
-        }
-        if (seg.kind === 'thinking') {
-          return <CollapsibleThinking key={i} text={seg.text} done={seg.done} />;
-        }
-        return (
-          <CollapsibleToolCall
-            key={i}
-            name={seg.name}
-            args={seg.args}
-            result={seg.result}
-          />
-        );
-      })}
-    </>
-  );
-}
-
-function renderMessageBody(m: ChatMessage, isPending: boolean) {
-  if (isPending) return <span className="chat-typing">…</span>;
-  if (m.role === 'assistant' && !m.error) {
-    return <AssistantBody content={m.content} />;
-  }
-  return m.content;
-}
-
-function getCopyText(m: ChatMessage): string {
-  if (m.role === 'assistant' && !m.error) {
-    return parseAssistantContent(m.content)
-      .filter((seg) => seg.kind === 'text')
-      .map((seg) => (seg as { kind: 'text'; text: string }).text)
-      .join('')
-      .trim();
-  }
-  return m.content;
-}
-
-function CopyBubbleButton({ message }: { message: ChatMessage }) {
-  const [copied, setCopied] = useState(false);
-  const onCopy = useCallback(() => {
-    const text = getCopyText(message);
-    if (!text) return;
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    });
-  }, [message]);
-  return (
-    <button
-      type="button"
-      className="chat-msg-copy"
-      onClick={onCopy}
-      aria-label={copied ? 'Copied' : 'Copy message'}
-      title={copied ? 'Copied' : 'Copy'}
-    >
-      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-    </button>
-  );
-}
-
-const ChatMessageRow = memo(function ChatMessageRow({
-  message,
-  isPending,
-  onRetry,
-}: ChatMessageRowProps) {
-  const m = message;
-  const showCopy = !isPending && !!m.content;
-  return (
-    <div className={`chat-row chat-row-${m.role}`}>
-      <div className={'chat-msg chat-msg-' + (m.error ? 'error' : m.role)}>
-        {showCopy && <CopyBubbleButton message={m} />}
-        {renderMessageBody(m, isPending)}
-      </div>
-      {m.error && (
-        <button
-          type="button"
-          className="chat-retry"
-          onClick={() => onRetry(m.id)}
-        >
-          Retry
-        </button>
-      )}
-    </div>
-  );
-});
 
 export default function ChatSidebar() {
   const { config, ready: cfgReady, setThinkingEnabled } = useLLMConfig();
@@ -346,6 +116,7 @@ export default function ChatSidebar() {
         runSql: parsed.runSql ?? true,
         runPython: parsed.runPython ?? true,
         runReact: parsed.runReact ?? true,
+        runSubAgent: parsed.runSubAgent ?? true,
       };
     } catch {
       return DEFAULT_AGENT_FEATURES;
@@ -590,6 +361,14 @@ export default function ChatSidebar() {
       executionPanelStore.setLlmActive(true);
       wasAtBottomRef.current = true;
 
+      // Make the parent-thread context available to any RunSubAgent tool
+      // call the LLM emits during this stream.
+      setSubAgentContext({
+        config,
+        features,
+        parentMessages: history.messages,
+      });
+
       await streamChat({
         config,
         messages: requestMessages,
@@ -758,6 +537,7 @@ export default function ChatSidebar() {
     if (isStreaming) abortRef.current?.abort();
     toolDebugger.reset();
     tokenUsageStore.setTokenUsage(null);
+    subAgentStore.clearAll();
     clear();
   }, [clear, isStreaming]);
 
@@ -907,35 +687,22 @@ export default function ChatSidebar() {
           </div>
         </header>
 
-        <div className="chat-list" ref={listRef} role="log" aria-live="polite">
-          {!hasMessages && (
+        <MessagesView
+          listRef={listRef}
+          messages={messages}
+          pendingAssistantId={
+            isStreaming && messages.length > 0
+              ? messages[messages.length - 1].id
+              : null
+          }
+          highlightCompactedId={highlightCompactedId}
+          onRetry={onRetry}
+          emptyState={
             <div className="chat-empty">
               Ask anything. Responses stream from the LLM you configured in Settings.
             </div>
-          )}
-          {messages.map((m, i) => {
-            if (m.kind === 'compaction') {
-              return (
-                <CollapsibleCompacted
-                  key={m.id}
-                  summary={m.content}
-                  highlight={m.id === highlightCompactedId}
-                />
-              );
-            }
-            const isLast = i === messages.length - 1;
-            const isPending =
-              isStreaming && isLast && m.role === 'assistant' && m.content === '';
-            return (
-              <ChatMessageRow
-                key={m.id}
-                message={m}
-                isPending={isPending}
-                onRetry={onRetry}
-              />
-            );
-          })}
-        </div>
+          }
+        />
 
         {unconfigured && (
           <div className="chat-banner">

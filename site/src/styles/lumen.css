@@ -2187,3 +2187,83 @@ body.exec-resizing {
   font-size: 13px;
   font-style: italic;
 }
+
+/* ---- SubAgents pane --------------------------------------------------- */
+
+.exec-subagents {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.exec-subagents-empty {
+  padding: var(--s-4);
+  color: var(--steel);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.exec-subagents-empty code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--snow);
+  padding: 1px 4px;
+  border-radius: var(--r-4, 4px);
+}
+
+.exec-subagents-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--mist);
+  background: var(--snow);
+  flex-shrink: 0;
+}
+
+.exec-subagent-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-8);
+  background: transparent;
+  color: var(--steel);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.exec-subagent-tab:hover {
+  color: var(--graphite);
+  background: var(--white);
+}
+.exec-subagent-tab[data-active="true"] {
+  color: var(--ink);
+  background: var(--white);
+  border-color: var(--mist);
+}
+
+.exec-subagents-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.exec-subagent-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+}
+
+.exec-subagent-error {
+  padding: var(--s-2) var(--s-3);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger-500);
+  border-radius: var(--r-8);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
