@@ -22,6 +22,7 @@ import SqlResultGrid from './SqlResultGrid';
 import SubAgentsPane from './SubAgentsPane';
 import * as subAgentStore from '../lib/subAgents/store';
 import { ChevronDownIcon, PlayIcon } from './Icons';
+import { registerExecBridge } from '../lib/tour/bridge';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
@@ -82,6 +83,19 @@ export default function ExecutionPanel() {
   const [editedPython, setEditedPython] = useState<string | null>(null);
   const [editedSql, setEditedSql] = useState<string | null>(null);
   const [editedReact, setEditedReact] = useState<string | null>(null);
+  const [featureMenuOpen, setFeatureMenuOpen] = useState(false);
+
+  useEffect(
+    () =>
+      registerExecBridge({
+        setFeatureMenuOpen,
+        setPythonEditor: (code: string) => {
+          setActiveTab('python');
+          setEditedPython(code);
+        },
+      }),
+    [],
+  );
 
   useEffect(() => {
     setEditedPython(null);
@@ -244,7 +258,11 @@ export default function ExecutionPanel() {
           active={active === 'subagents'}
           status={subAgentStatus}
         />
-        <FeatureSelector features={features} />
+        <FeatureSelector
+          features={features}
+          open={featureMenuOpen}
+          setOpen={setFeatureMenuOpen}
+        />
       </div>
       <div className="exec-body">
         {active === 'subagents' ? (
@@ -259,7 +277,11 @@ export default function ExecutionPanel() {
           />
         ) : (
           <>
-            <div className="exec-editor-section" data-folded={codeFolded}>
+            <div
+              className="exec-editor-section"
+              data-folded={codeFolded}
+              data-tour-id="exec.codeEditor"
+            >
               <div className="exec-editor-bar">
                 <button
                   type="button"
@@ -281,6 +303,7 @@ export default function ExecutionPanel() {
                 <button
                   type="button"
                   className="exec-play-btn"
+                  data-tour-id="exec.runButton"
                   onClick={handleRun}
                   disabled={!canRun}
                   aria-label="Run edited code"
@@ -399,6 +422,8 @@ function StatusDot({ status }: { status: PaneStatus }) {
 
 interface FeatureSelectorProps {
   features: ReturnType<typeof agentFeatures.getSnapshot>;
+  open: boolean;
+  setOpen: (open: boolean) => void;
 }
 
 const FEATURE_OPTIONS: ReadonlyArray<{
@@ -411,8 +436,7 @@ const FEATURE_OPTIONS: ReadonlyArray<{
   { key: 'runReact', label: 'React' },
 ];
 
-function FeatureSelector({ features }: FeatureSelectorProps) {
-  const [open, setOpen] = useState(false);
+function FeatureSelector({ features, open, setOpen }: FeatureSelectorProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -429,14 +453,15 @@ function FeatureSelector({ features }: FeatureSelectorProps) {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <div className="exec-feature-selector" ref={wrapRef}>
       <button
         type="button"
         className="exec-feature-trigger"
-        onClick={() => setOpen((v) => !v)}
+        data-tour-id="exec.featureSelector"
+        onClick={() => setOpen(!open)}
         aria-haspopup="menu"
         aria-expanded={open}
         title="Feature selector"
@@ -445,7 +470,11 @@ function FeatureSelector({ features }: FeatureSelectorProps) {
         <ChevronDownIcon size={12} />
       </button>
       {open && (
-        <div className="exec-feature-popover" role="menu">
+        <div
+          className="exec-feature-popover"
+          role="menu"
+          data-tour-id="exec.featurePopover"
+        >
           {FEATURE_OPTIONS.map(({ key, label }) => (
             <label key={key} className="exec-feature-option">
               <input

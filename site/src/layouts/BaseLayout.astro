@@ -2,6 +2,7 @@
 import "../styles/lumen.css";
 import HeaderSettings from "../components/HeaderSettings.tsx";
 import ChatSidebar from "../components/ChatSidebar.tsx";
+import TourMenuButton from "../components/TourMenuButton.tsx";
 
 interface Props {
   title?: string;
@@ -40,7 +41,7 @@ const {
         </a>
         <div class="nav-right">
           <div class="nav-links">
-            <a href="/">Home</a>
+            <TourMenuButton client:only="react" />
             <a href="https://github.com">GitHub</a>
           </div>
           <HeaderSettings client:load />

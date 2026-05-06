@@ -1,6 +1,7 @@
 import { runAgentTool } from '../agentTools';
 import { isAbortError, type StreamChatOptions } from '../streamChat';
-import { DEFAULT_LOCAL_GEMMA_ID, getLocalGemmaModel, type LocalGemmaId } from './models';
+import { DEFAULT_LOCAL_GEMMA_ID } from './models';
+import { resolveActiveLocalModel } from './customModels';
 import { ensureLoaded, generate, sizeInTokens } from './llmService';
 import {
   formatToolCallToken,
@@ -115,11 +116,9 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     onUsage({ input: input ?? 0, output: output ?? 0 });
   };
 
-  const modelId =
-    (config.models[LOCAL_GEMMA_ENDPOINT] as LocalGemmaId | undefined) ??
-    DEFAULT_LOCAL_GEMMA_ID;
-  if (!getLocalGemmaModel(modelId)) {
-    onError(new Error(`Unknown local Gemma model id: ${modelId}`));
+  const modelId = config.models[LOCAL_GEMMA_ENDPOINT] ?? DEFAULT_LOCAL_GEMMA_ID;
+  if (!resolveActiveLocalModel(modelId)) {
+    onError(new Error(`Unknown local model id: ${modelId}`));
     return;
   }
 

@@ -285,7 +285,13 @@ export default function MessagesView({
 }: MessagesViewProps) {
   const hasMessages = messages.length > 0;
   return (
-    <div className="chat-list" ref={listRef} role="log" aria-live="polite">
+    <div
+      className="chat-list"
+      ref={listRef}
+      role="log"
+      aria-live="polite"
+      data-tour-id="chat.conversation"
+    >
       {systemPrompt && <CollapsibleSystemPrompt text={systemPrompt} />}
       {!hasMessages && emptyState}
       {messages.map((m) => {

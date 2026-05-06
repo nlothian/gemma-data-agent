@@ -43,7 +43,7 @@ export default function PythonOutput({
   const showOutput = sub === 'output' || !hasImages;
 
   return (
-    <div className="exec-output-wrap">
+    <div className="exec-output-wrap" data-tour-id="exec.pythonOutput">
       {hasImages && (
         <div className="exec-output-subtabs" role="tablist">
           <SubTabButton
