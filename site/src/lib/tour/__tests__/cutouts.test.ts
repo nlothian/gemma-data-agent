@@ -19,6 +19,7 @@ describe('cutout registry', () => {
       'chat.playButton',
       'chat.conversation',
       'chat.compactionRunButton',
+      'exec.panel',
       'exec.featureSelector',
       'exec.explainerPanel',
       'exec.codeEditor',
