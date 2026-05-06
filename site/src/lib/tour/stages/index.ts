@@ -8,6 +8,7 @@ import watchConversation from './05b-watch-conversation';
 import features from './06-features';
 import pythonPlot from './07-python-plot';
 import pythonOutput from './08-python-output';
+import subAgentsPipeline from './09-subagents-pipeline';
 
 export const DEFAULT_TOUR: TourDefinition = {
   id: 'default',
@@ -21,5 +22,6 @@ export const DEFAULT_TOUR: TourDefinition = {
     features,
     pythonPlot,
     pythonOutput,
+    subAgentsPipeline,
   ],
 };
