@@ -7,6 +7,6 @@ import ExecutionPanel from "../components/ExecutionPanel.tsx";
 import ExplainerPanel from "../components/ExplainerPanel.tsx";
 import PauseCoachmark from "../components/PauseCoachmark.tsx";
 
-<ExecutionPanel client:load />
-<ExplainerPanel client:load />
+<ExecutionPanel client:only="react" />
+<ExplainerPanel client:only="react" />
 <PauseCoachmark client:only="react" />

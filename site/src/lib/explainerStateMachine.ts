@@ -25,6 +25,7 @@ export type ExplainerState =
   | { kind: 'paused-python'; code: string; summary: SummaryState }
   | { kind: 'paused-sql'; sql: string; summary: SummaryState }
   | { kind: 'paused-react'; code: string; summary: SummaryState }
+  | { kind: 'paused-subagent'; prompt: string; summary: SummaryState }
   | { kind: 'paused-load'; url: string }
   | { kind: 'paused-compaction'; messages: ChatMessage[] };
 
@@ -48,6 +49,7 @@ export function summaryKey(state: ExplainerState): string | null {
   if (state.kind === 'paused-python') return `python:${state.code}`;
   if (state.kind === 'paused-sql') return `sql:${state.sql}`;
   if (state.kind === 'paused-react') return `react:${state.code}`;
+  if (state.kind === 'paused-subagent') return `subagent:${state.prompt}`;
   return null;
 }
 
@@ -96,6 +98,11 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
         if (state.kind === 'paused-react' && state.code === code) return state;
         return { kind: 'paused-react', code, summary: { status: 'idle' } };
       }
+      if (toolName === 'RunSubAgent') {
+        const prompt = readString(input, 'prompt') ?? '';
+        if (state.kind === 'paused-subagent' && state.prompt === prompt) return state;
+        return { kind: 'paused-subagent', prompt, summary: { status: 'idle' } };
+      }
       if (toolName === 'LoadData') {
         const url = readString(input, 'url') ?? '';
         if (state.kind === 'paused-load' && state.url === url) return state;
@@ -113,7 +120,8 @@ export function reduce(state: ExplainerState, event: ExplainerEvent): ExplainerS
       if (
         state.kind !== 'paused-python' &&
         state.kind !== 'paused-sql' &&
-        state.kind !== 'paused-react'
+        state.kind !== 'paused-react' &&
+        state.kind !== 'paused-subagent'
       ) return state;
       if (summaryKey(state) !== event.key) return state;
       const next: SummaryState =

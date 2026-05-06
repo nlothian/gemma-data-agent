@@ -428,10 +428,12 @@ export async function runAgentTool(
     if (!promptText.trim()) {
       return { error: 'RunSubAgent requires a non-empty `prompt`.' } satisfies ToolError;
     }
-    const [{ runSubAgent }, { getSubAgentContext }] = await Promise.all([
-      import('./subAgents/runSubAgent'),
-      import('./subAgents/context'),
-    ]);
+    const [{ runSubAgent, prepareSubAgentRun }, { getSubAgentContext }, subAgentStore] =
+      await Promise.all([
+        import('./subAgents/runSubAgent'),
+        import('./subAgents/context'),
+        import('./subAgents/store'),
+      ]);
     const ctx = getSubAgentContext();
     if (!ctx) {
       return {
@@ -439,17 +441,18 @@ export async function runAgentTool(
           'RunSubAgent is unavailable: no parent conversation context is registered.',
       } satisfies ToolError;
     }
+    // Register the run + prompt up-front so the SubAgents tab shows the
+    // instructions during the Step/Play pause, not after.
+    const runId = prepareSubAgentRun({ prompt: promptText, taskLabel });
     return runWithGate({
       toolName: 'RunSubAgent',
       gateInput: { prompt: promptText, task_label: taskLabel },
       signal,
       onPending: () => panel.setActiveTab('subagents'),
-      onAborted: () => {
-        // No pane state to update — the sub-agent store carries its own status.
-      },
+      onAborted: () => subAgentStore.setStatus(runId, 'aborted'),
       onRunning: () => panel.setActiveTab('subagents'),
       onResult: () => {
-        // Same — final state is reflected in the SubAgents store.
+        // Final state is reflected in the SubAgents store.
       },
       run: () =>
         runSubAgent({
@@ -459,6 +462,7 @@ export async function runAgentTool(
           parentMessages: ctx.parentMessages,
           features: ctx.features,
           signal,
+          runId,
         }),
     });
   }

@@ -49,7 +49,9 @@ export default function ExplainerPanel() {
         ? 'sql'
         : state.kind === 'paused-react'
           ? 'react'
-          : null;
+          : state.kind === 'paused-subagent'
+            ? 'subagent'
+            : null;
   const code =
     state.kind === 'paused-python'
       ? state.code
@@ -57,7 +59,9 @@ export default function ExplainerPanel() {
         ? state.sql
         : state.kind === 'paused-react'
           ? state.code
-          : null;
+          : state.kind === 'paused-subagent'
+            ? state.prompt
+            : null;
   const endpoint = config.activeEndpoint;
 
   useEffect(() => {
@@ -106,7 +110,7 @@ function ExplainerBody({
   if (state.kind === 'empty') return null;
 
   if (state.kind === 'running') {
-    return <p>Running without interruptions. Press Pause to halt.</p>;
+    return <p>Running without interruptions. Press Stop to halt.</p>;
   }
 
   if (state.kind === 'paused-python') {
@@ -131,6 +135,15 @@ function ExplainerBody({
     return (
       <>
         <p>The model wants to render a React component with the code above. Press the step button to continue.</p>
+        <SummaryView summary={state.summary} />
+      </>
+    );
+  }
+
+  if (state.kind === 'paused-subagent') {
+    return (
+      <>
+        <p>The main agent wants to create a sub agent. It does this to save context in the main agent thread.</p>
         <SummaryView summary={state.summary} />
       </>
     );

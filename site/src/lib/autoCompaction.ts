@@ -90,6 +90,7 @@ export interface RunCompactionDeps {
   flush: () => void;
   setHighlightId: (id: string | null) => void;
   scrollToTop: () => void;
+  signal?: AbortSignal;
   /**
    * Optional: compute the post-compaction context size for the gauge.
    * Called with the message list as it will appear after the marker is
@@ -100,7 +101,7 @@ export interface RunCompactionDeps {
 }
 
 export async function runCompaction(deps: RunCompactionDeps): Promise<void> {
-  const { config, toCompact, recent, replaceMessages, flush, setHighlightId, scrollToTop } = deps;
+  const { config, toCompact, recent, replaceMessages, flush, setHighlightId, scrollToTop, signal } = deps;
   executionPanelStore.setLlmCompacting(true);
   // Yield to the browser for a paint before kicking off the model. Local
   // Gemma's prefill can block the main thread for tens of seconds on long
@@ -111,7 +112,8 @@ export async function runCompaction(deps: RunCompactionDeps): Promise<void> {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
   try {
-    const summary = await compactConversation({ config, toCompact });
+    const summary = await compactConversation({ config, toCompact, signal });
+    if (signal?.aborted) return;
     const marker: ChatMessage = {
       id: generateId(),
       role: 'user',
@@ -129,6 +131,7 @@ export async function runCompaction(deps: RunCompactionDeps): Promise<void> {
     setHighlightId(marker.id);
     setTimeout(() => setHighlightId(null), 5000);
   } catch (err) {
+    if ((err as DOMException)?.name === 'AbortError') return;
     console.warn('Compaction failed:', err);
   } finally {
     executionPanelStore.setLlmCompacting(false);

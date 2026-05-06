@@ -32,6 +32,44 @@ export interface RunSubAgentArgs {
   parentMessages: ChatMessage[];
   features: AgentPromptFeatures;
   signal?: AbortSignal;
+  /**
+   * Optional pre-created run id. When supplied, the run, the user prompt
+   * message, and the assistant placeholder are assumed to already be in the
+   * store — see `prepareSubAgentRun`. Used so the prompt is visible in the
+   * SubAgents tab during the pre-execution Step/Play pause.
+   */
+  runId?: string;
+}
+
+export interface PrepareSubAgentRunArgs {
+  prompt: string;
+  taskLabel?: string;
+}
+
+/**
+ * Register the sub-agent run + its prompt in the store before the gated
+ * execution begins, so the SubAgents tab shows the instructions during the
+ * Step/Play pause instead of staying blank until the user resumes.
+ */
+export function prepareSubAgentRun(args: PrepareSubAgentRunArgs): string {
+  const label = (args.taskLabel || args.prompt || 'SubAgent').slice(0, 80);
+  const runId = subAgentStore.startRun({ label });
+
+  const userMsg: ChatMessage = {
+    id: generateId(),
+    role: 'user',
+    content: args.prompt,
+    createdAt: Date.now(),
+  };
+  const assistantMsg: ChatMessage = {
+    id: generateId(),
+    role: 'assistant',
+    content: '',
+    createdAt: Date.now(),
+  };
+  subAgentStore.appendMessage(runId, userMsg);
+  subAgentStore.appendMessage(runId, assistantMsg);
+  return runId;
 }
 
 export interface SubAgentResultOk {
@@ -52,25 +90,9 @@ const SUBAGENT_SYSTEM_HEADER =
 export async function runSubAgent(
   args: RunSubAgentArgs,
 ): Promise<RunSubAgentResult> {
-  const { prompt, taskLabel, config, parentMessages, features, signal } = args;
+  const { prompt, config, parentMessages, features, signal } = args;
 
-  const label = (taskLabel || prompt || 'SubAgent').slice(0, 80);
-  const runId = subAgentStore.startRun({ label });
-
-  const userMsg: ChatMessage = {
-    id: generateId(),
-    role: 'user',
-    content: prompt,
-    createdAt: Date.now(),
-  };
-  const assistantMsg: ChatMessage = {
-    id: generateId(),
-    role: 'assistant',
-    content: '',
-    createdAt: Date.now(),
-  };
-  subAgentStore.appendMessage(runId, userMsg);
-  subAgentStore.appendMessage(runId, assistantMsg);
+  const runId = args.runId ?? prepareSubAgentRun(args);
 
   try {
     const summary = await summariseParent(parentMessages, config, signal);

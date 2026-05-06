@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LoadedTable } from '../lib/duckdb';
 import type { PaneStatus } from '../lib/executionPanelStore';
 import type { SandboxFileEntry } from '../lib/sandboxStore';
@@ -6,6 +6,9 @@ import type { LoadedSandboxFile } from '../lib/sandboxFiles';
 import useSandboxConfig, {
   useLoadedSandboxFiles,
 } from '../hooks/useSandboxConfig';
+import { invalidateAcrossCaches } from '../lib/cacheRegistry';
+import { ChevronRightIcon, TrashIcon } from './Icons';
+import SandboxSettingsSection from './SandboxSettingsSection';
 
 interface DataPanelProps {
   tables: LoadedTable[];
@@ -28,6 +31,8 @@ export default function DataPanel({
 
   return (
     <div className="data-panel" role="tabpanel">
+      <SandboxSettingsCollapsible />
+
       {isPending && (
         <div className="data-pending">
           <span className="exec-status-dot" data-status={status} aria-hidden />
@@ -62,11 +67,29 @@ export default function DataPanel({
       )}
 
       {tables.length > 0 && (
-        <div className="data-tables">
-          {tables.map((t) => (
-            <TableCard key={t.name} table={t} />
-          ))}
-        </div>
+        <>
+          <div className="data-tables-header">
+            <span>
+              {tables.length} table{tables.length === 1 ? '' : 's'} loaded
+            </span>
+            <button
+              type="button"
+              className="data-clear-all"
+              onClick={() => {
+                const names = new Set(tables.map((t) => t.name));
+                void invalidateAcrossCaches((m) => names.has(m.name));
+              }}
+            >
+              <TrashIcon size={14} />
+              <span>Clear all</span>
+            </button>
+          </div>
+          <div className="data-tables">
+            {tables.map((t) => (
+              <TableCard key={t.name} table={t} />
+            ))}
+          </div>
+        </>
       )}
 
       <SandboxFilesSection />
@@ -74,40 +97,101 @@ export default function DataPanel({
   );
 }
 
-function TableCard({ table }: { table: LoadedTable }) {
+function SandboxSettingsCollapsible() {
+  const { status } = useSandboxConfig();
+  const [expanded, setExpanded] = useState(status === 'unset');
+  const prevStatusRef = useRef(status);
+
+  useEffect(() => {
+    if (prevStatusRef.current !== 'unset' && status === 'unset') {
+      setExpanded(true);
+    }
+    prevStatusRef.current = status;
+  }, [status]);
+
   return (
     <article className="data-table-card">
       <header className="data-table-head">
-        <h3>
-          <code>{table.name}</code>
-        </h3>
-        <span className="data-table-meta">
-          {table.format} · {formatRowCount(table.rowCount)} rows
-        </span>
+        <button
+          type="button"
+          className="data-table-toggle"
+          data-expanded={expanded ? 'true' : 'false'}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <ChevronRightIcon size={14} />
+          <h3>Sandbox Settings</h3>
+        </button>
       </header>
-      <div className="data-table-url" title={table.url}>
-        {table.url}
-      </div>
-      <table className="data-schema">
-        <thead>
-          <tr>
-            <th>column</th>
-            <th>type</th>
-          </tr>
-        </thead>
-        <tbody>
-          {table.schema.map((col) => (
-            <tr key={col.name}>
-              <td>
-                <code>{col.name}</code>
-              </td>
-              <td>
-                <code>{col.type}</code>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {expanded && (
+        <div style={{ paddingLeft: '22px', paddingRight: '22px' }}>
+          <SandboxSettingsSection />
+        </div>
+      )}
+    </article>
+  );
+}
+
+function TableCard({ table }: { table: LoadedTable }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <article className="data-table-card">
+      <header className="data-table-head">
+        <button
+          type="button"
+          className="data-table-toggle"
+          data-expanded={expanded ? 'true' : 'false'}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <ChevronRightIcon size={14} />
+          <h3>
+            <code>{table.name}</code>
+          </h3>
+          <span className="data-table-meta">
+            {table.format} · {formatRowCount(table.rowCount)} rows
+          </span>
+        </button>
+        <button
+          type="button"
+          className="data-table-clear"
+          aria-label={`Clear ${table.name}`}
+          title={`Clear ${table.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            void invalidateAcrossCaches((m) => m.name === table.name);
+          }}
+        >
+          <TrashIcon size={14} />
+        </button>
+      </header>
+      {expanded && (
+        <>
+          <div className="data-table-url" title={table.url}>
+            {table.url}
+          </div>
+          <table className="data-schema">
+            <thead>
+              <tr>
+                <th>column</th>
+                <th>type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {table.schema.map((col) => (
+                <tr key={col.name}>
+                  <td>
+                    <code>{col.name}</code>
+                  </td>
+                  <td>
+                    <code>{col.type}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </article>
   );
 }

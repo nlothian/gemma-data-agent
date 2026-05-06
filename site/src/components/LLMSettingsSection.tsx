@@ -7,6 +7,7 @@ import {
 } from './Icons';
 import ModelPickerCell from './ModelPickerCell';
 import useLLMConfig from '../hooks/useLLMConfig';
+import useLocalGemmaSwitcher from '../hooks/useLocalGemmaSwitcher';
 import useProviderModels, { type ProviderModelsEntry } from '../hooks/useProviderModels';
 import {
   BUILT_IN_PROVIDERS,
@@ -17,11 +18,8 @@ import {
   DEFAULT_LOCAL_GEMMA_ID,
   LOCAL_GEMMA_MODELS,
   formatGB,
-  getLocalGemmaModel,
   type LocalGemmaId,
-  type LocalGemmaModel,
 } from '../lib/localLlm/models';
-import { isModelCached } from '../lib/localLlm/opfsCache';
 import { detectWebGpu, type WebGpuStatus } from '../lib/localLlm/webgpu';
 
 const styles = {
@@ -494,7 +492,6 @@ interface LocalGemmaRowProps {
   isLast: boolean;
   isActive: boolean;
   selectedId: LocalGemmaId;
-  onActivateConfirmed: () => void;
   onPickModel: (id: LocalGemmaId) => void;
 }
 
@@ -502,13 +499,11 @@ function LocalGemmaRow({
   isLast,
   isActive,
   selectedId,
-  onActivateConfirmed,
   onPickModel,
 }: LocalGemmaRowProps) {
   const rowStyle = isLast ? { ...styles.row, ...styles.rowLast } : styles.row;
   const [gpuStatus, setGpuStatus] = useState<WebGpuStatus | null>(null);
-  const [pendingDownload, setPendingDownload] = useState<LocalGemmaModel | null>(null);
-  const [checkingCache, setCheckingCache] = useState(false);
+  const switcher = useLocalGemmaSwitcher({ loadOnApply: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -520,41 +515,16 @@ function LocalGemmaRow({
     };
   }, []);
 
-  useEffect(() => {
-    if (isActive) setPendingDownload(null);
-  }, [isActive]);
-
   const supported = gpuStatus?.supported === true;
   const detecting = gpuStatus === null;
   const reason = gpuStatus?.reason;
+  const checking = switcher.state.phase === 'checking';
+  const pending =
+    switcher.state.phase === 'confirm' ? switcher.state.model : null;
 
   const handleRadioChange = (): void => {
     if (isActive) return;
-    const model = getLocalGemmaModel(selectedId);
-    if (!model) return;
-    setCheckingCache(true);
-    void (async () => {
-      try {
-        const cached = await isModelCached(model.url);
-        if (cached) {
-          setPendingDownload(null);
-          onActivateConfirmed();
-        } else {
-          setPendingDownload(model);
-        }
-      } finally {
-        setCheckingCache(false);
-      }
-    })();
-  };
-
-  const handleApply = (): void => {
-    setPendingDownload(null);
-    onActivateConfirmed();
-  };
-
-  const handleCancel = (): void => {
-    setPendingDownload(null);
+    switcher.request(selectedId);
   };
 
   return (
@@ -565,7 +535,7 @@ function LocalGemmaRow({
         value={LOCAL_GEMMA_ENDPOINT}
         checked={isActive}
         onChange={handleRadioChange}
-        disabled={!supported || checkingCache}
+        disabled={!supported || checking}
         style={styles.radio}
         aria-label="Use Local Gemma 4 (WebGPU)"
         title={!supported && reason ? reason : undefined}
@@ -596,24 +566,24 @@ function LocalGemmaRow({
             </option>
           ))}
         </select>
-        {pendingDownload ? (
+        {pending ? (
           <div style={styles.localConfirm} role="alert">
             <p style={styles.localConfirmText}>
-              {pendingDownload.label} is about {formatGB(pendingDownload.approxBytes)}.
+              {pending.label} is about {formatGB(pending.approxBytes)}.
               It will download and cache when you close Settings.
             </p>
             <div style={styles.localConfirmActions}>
               <button
                 type="button"
                 style={styles.localApplyButton}
-                onClick={handleApply}
+                onClick={switcher.apply}
               >
                 Apply
               </button>
               <button
                 type="button"
                 style={styles.localCancelButton}
-                onClick={handleCancel}
+                onClick={switcher.cancel}
               >
                 Cancel
               </button>
@@ -645,13 +615,6 @@ export default function LLMSettingsSection() {
   const localActive = config.activeEndpoint === LOCAL_GEMMA_ENDPOINT;
   const localSelectedId =
     (config.models[LOCAL_GEMMA_ENDPOINT] as LocalGemmaId | undefined) ?? DEFAULT_LOCAL_GEMMA_ID;
-
-  const handleLocalActivateConfirmed = (): void => {
-    setActiveEndpoint(LOCAL_GEMMA_ENDPOINT);
-    if (!config.models[LOCAL_GEMMA_ENDPOINT]) {
-      setModel(LOCAL_GEMMA_ENDPOINT, localSelectedId);
-    }
-  };
 
   const handleLocalPickModel = (id: LocalGemmaId): void => {
     setModel(LOCAL_GEMMA_ENDPOINT, id);
@@ -715,7 +678,6 @@ export default function LLMSettingsSection() {
           isLast={BUILT_IN_PROVIDERS.length === total - 1}
           isActive={localActive}
           selectedId={localSelectedId}
-          onActivateConfirmed={handleLocalActivateConfirmed}
           onPickModel={handleLocalPickModel}
         />
 

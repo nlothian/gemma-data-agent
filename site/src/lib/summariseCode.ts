@@ -17,13 +17,20 @@ import { callLLM } from './llm';
 import { isLocalGemmaEndpoint } from '../types/llm';
 import type { LLMConfig } from '../types/llm';
 
-export type SummaryLanguage = 'python' | 'sql' | 'react';
+export type SummaryLanguage = 'python' | 'sql' | 'react' | 'subagent';
 
 const SYSTEM_PROMPT =
   'You explain short code snippets in plain English for a non-technical reader. ' +
   'Reply with up to 3 sentences. Do not include code, markdown, or preamble.';
 
 function buildUserPrompt(language: SummaryLanguage, code: string): string {
+  if (language === 'subagent') {
+    return (
+      'Summarise these instructions for a sub-agent into up to 3 sentences of English. ' +
+      'Describe what the sub-agent is being asked to do, not how it is phrased.\n\n' +
+      code
+    );
+  }
   const label =
     language === 'python' ? 'Python' : language === 'sql' ? 'SQL' : 'React (TSX)';
   const fence = language === 'react' ? 'tsx' : language;

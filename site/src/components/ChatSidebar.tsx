@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import useLLMConfig from '../hooks/useLLMConfig';
+import useLocalGemmaSwitcher from '../hooks/useLocalGemmaSwitcher';
 import useChatHistory from '../hooks/useChatHistory';
 import useChatSidebarWidth, {
   MIN_WIDTH as CHAT_MIN_WIDTH,
@@ -19,10 +20,10 @@ import { generateId } from '../lib/browser';
 import {
   buildAgentSystemPrompt,
   buildAgentTools,
-  type AgentPromptFeatures,
 } from '../lib/agentTools';
 import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
+import * as agentFeatures from '../lib/agentFeaturesStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
 import { restoreRegistryFromIndexedDB } from '../lib/duckdb';
 import {
@@ -48,26 +49,23 @@ import type { TokenUsage } from '../lib/tokenUsageStore';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import {
+  LOCAL_GEMMA_MODELS,
+  formatGB,
+  getLocalGemmaModel,
+} from '../lib/localLlm/models';
+import { detectWebGpu, type WebGpuStatus } from '../lib/localLlm/webgpu';
+import {
   ChatAddOnIcon,
   ChevronDownIcon,
   CloseIcon,
   CompressIcon,
-  PauseIcon,
   PlayIcon,
   StepIcon,
+  StopIcon,
 } from './Icons';
 import Throbber from './Throbber';
 import PressureIndicator from './PressureIndicator';
 import MessagesView from './MessagesView';
-
-const AGENT_FEATURES_STORAGE_KEY = 'agentFeatures';
-const DEFAULT_AGENT_FEATURES: AgentPromptFeatures = {
-  dataLoading: true,
-  runSql: true,
-  runPython: true,
-  runReact: true,
-  runSubAgent: true,
-};
 
 let hydratePromise: Promise<void> | null = null;
 
@@ -106,36 +104,22 @@ export default function ChatSidebar() {
   const [highlightCompactedId, setHighlightCompactedId] = useState<string | null>(
     null,
   );
-  const [features, setFeatures] = useState<AgentPromptFeatures>(() => {
-    const raw = localStorage.getItem(AGENT_FEATURES_STORAGE_KEY);
-    if (!raw) return DEFAULT_AGENT_FEATURES;
-    try {
-      const parsed = JSON.parse(raw) as Partial<AgentPromptFeatures>;
-      return {
-        dataLoading: parsed.dataLoading ?? true,
-        runSql: parsed.runSql ?? true,
-        runPython: parsed.runPython ?? true,
-        runReact: parsed.runReact ?? true,
-        runSubAgent: parsed.runSubAgent ?? true,
-      };
-    } catch {
-      return DEFAULT_AGENT_FEATURES;
-    }
-  });
+  const features = useSyncExternalStore(
+    agentFeatures.subscribe,
+    agentFeatures.getSnapshot,
+    agentFeatures.getServerSnapshot,
+  );
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    localStorage.setItem(AGENT_FEATURES_STORAGE_KEY, JSON.stringify(features));
-  }, [features]);
-  const [featuresMenuOpen, setFeaturesMenuOpen] = useState(false);
-  const featuresMenuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!featuresMenuOpen) return;
+    if (!modelMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!featuresMenuRef.current?.contains(e.target as Node)) {
-        setFeaturesMenuOpen(false);
+      if (!modelMenuRef.current?.contains(e.target as Node)) {
+        setModelMenuOpen(false);
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFeaturesMenuOpen(false);
+      if (e.key === 'Escape') setModelMenuOpen(false);
     };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKey);
@@ -143,7 +127,18 @@ export default function ChatSidebar() {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [featuresMenuOpen]);
+  }, [modelMenuOpen]);
+  const [gpuStatus, setGpuStatus] = useState<WebGpuStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    detectWebGpu().then((s) => {
+      if (!cancelled) setGpuStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const modelSwitcher = useLocalGemmaSwitcher({ loadOnApply: true });
   const { width: sidebarWidth, setWidth: setSidebarWidth } = useChatSidebarWidth();
   const debugger_ = useSyncExternalStore(
     toolDebugger.subscribe,
@@ -481,8 +476,12 @@ export default function ChatSidebar() {
 
   const onPlay = useCallback(() => startOrAdvance('running'), [startOrAdvance]);
   const onStep = useCallback(() => startOrAdvance('paused'), [startOrAdvance]);
-  const onPause = useCallback(() => {
-    toolDebugger.pause();
+  const onStop = useCallback(() => {
+    abortRef.current?.abort();
+    // reset() flips the debugger to paused (the previous Pause behaviour)
+    // and also aborts any pending tool gate so the agent loop unwinds
+    // cleanly instead of staying wedged at a Step prompt.
+    toolDebugger.reset();
   }, []);
 
   const compacting = panelSnap.llm.compacting;
@@ -491,16 +490,23 @@ export default function ChatSidebar() {
     if (isStreaming || compacting || unconfigured) return;
     const slice = buildCompactionSlice(history.messages);
     if (!slice) return;
-    await runCompaction({
-      config,
-      toCompact: slice.toCompact,
-      recent: slice.recent,
-      replaceMessages,
-      flush,
-      setHighlightId: setHighlightCompactedId,
-      scrollToTop,
-      estimatePostCompactionUsage,
-    });
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      await runCompaction({
+        config,
+        toCompact: slice.toCompact,
+        recent: slice.recent,
+        replaceMessages,
+        flush,
+        setHighlightId: setHighlightCompactedId,
+        scrollToTop,
+        estimatePostCompactionUsage,
+        signal: controller.signal,
+      });
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
   }, [
     compacting,
     config,
@@ -538,11 +544,19 @@ export default function ChatSidebar() {
     toolDebugger.reset();
     tokenUsageStore.setTokenUsage(null);
     subAgentStore.clearAll();
+    executionPanelStore.clearNonDataPanes();
     clear();
   }, [clear, isStreaming]);
 
   const messages = history.messages;
   const hasMessages = messages.length > 0;
+
+  // Mirror the system prompt that sendPrompt assembles, so the user can see
+  // exactly what the model will receive on the next turn.
+  const systemPrompt = useMemo(
+    () => buildAgentSystemPrompt(features) + buildCompactionContext(messages),
+    [features, messages],
+  );
 
   const pressureLevel: PressureLevel = useMemo(() => {
     if (!config.activeEndpoint) return 'ok';
@@ -578,26 +592,122 @@ export default function ChatSidebar() {
         />
         <header className="chat-header">
           <div className="chat-title">
-            {config.activeEndpoint && config.models[config.activeEndpoint] ? (
-              <>
-                <span className="chat-model">{config.models[config.activeEndpoint]}</span>
-                {isLocalGemmaEndpoint(config.activeEndpoint) && (
-                  <label className="chat-thinking-toggle">
-                    <input
-                      type="checkbox"
-                      checked={config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false}
-                      onChange={(e) =>
-                        setThinkingEnabled(LOCAL_GEMMA_ENDPOINT, e.target.checked)
-                      }
-                      aria-label="Enable Gemma thinking mode"
-                    />
-                    Thinking
-                  </label>
-                )}
-              </>
-            ) : (
-              <span className="chat-model chat-model-empty">No model</span>
-            )}
+            {(() => {
+              const ep = config.activeEndpoint;
+              const rawModel = ep ? config.models[ep] : '';
+              const isLocal = ep ? isLocalGemmaEndpoint(ep) : false;
+              const localLabel = isLocal
+                ? getLocalGemmaModel(rawModel)?.label
+                : null;
+              const labelText = isLocal
+                ? localLabel ?? 'Choose model'
+                : rawModel || 'Choose model';
+              const isEmpty = !ep || !rawModel || (isLocal && !localLabel);
+              const webGpuSupported = gpuStatus?.supported === true;
+              const webGpuReason = gpuStatus?.reason;
+              const pendingConfirm =
+                modelSwitcher.state.phase === 'confirm'
+                  ? modelSwitcher.state.model
+                  : null;
+              return (
+                <div className="chat-model-split" ref={modelMenuRef}>
+                  <span
+                    className={
+                      'chat-model chat-model-label' +
+                      (isEmpty ? ' chat-model-empty' : '')
+                    }
+                  >
+                    {labelText}
+                  </span>
+                  <button
+                    type="button"
+                    className="chat-iconbtn chat-model-menu-btn"
+                    onClick={() => setModelMenuOpen((v) => !v)}
+                    title={
+                      webGpuSupported
+                        ? 'Choose local model'
+                        : webGpuReason ?? 'WebGPU is unavailable.'
+                    }
+                    aria-label="Choose local model"
+                    aria-haspopup="menu"
+                    aria-expanded={modelMenuOpen}
+                    disabled={!webGpuSupported}
+                  >
+                    <ChevronDownIcon size={12} />
+                  </button>
+                  {modelMenuOpen && (
+                    <div className="chat-model-popover" role="menu">
+                      {LOCAL_GEMMA_MODELS.map((m) => {
+                        const isActive =
+                          ep === LOCAL_GEMMA_ENDPOINT && rawModel === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            role="menuitem"
+                            className={
+                              'chat-model-option' +
+                              (isActive ? ' chat-model-option--active' : '')
+                            }
+                            onClick={() => {
+                              modelSwitcher.request(m.id);
+                              setModelMenuOpen(false);
+                            }}
+                          >
+                            <span className="chat-model-option-label">
+                              {m.label}
+                            </span>
+                            <span className="chat-model-size">
+                              {formatGB(m.approxBytes)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {pendingConfirm && (
+                    <div className="chat-model-confirm" role="alert">
+                      <p className="chat-model-confirm-text">
+                        {pendingConfirm.label} is about{' '}
+                        {formatGB(pendingConfirm.approxBytes)}. It will download
+                        and cache now.
+                      </p>
+                      <div className="chat-model-confirm-actions">
+                        <button
+                          type="button"
+                          className="chat-model-apply"
+                          onClick={modelSwitcher.apply}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-model-cancel"
+                          onClick={modelSwitcher.cancel}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {config.activeEndpoint &&
+              config.models[config.activeEndpoint] &&
+              isLocalGemmaEndpoint(config.activeEndpoint) && (
+                <label className="chat-thinking-toggle">
+                  <input
+                    type="checkbox"
+                    checked={config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false}
+                    onChange={(e) =>
+                      setThinkingEnabled(LOCAL_GEMMA_ENDPOINT, e.target.checked)
+                    }
+                    aria-label="Enable Gemma thinking mode"
+                  />
+                  Thinking
+                </label>
+              )}
           </div>
           <div className="chat-header-actions">
             <PressureIndicator />
@@ -608,73 +718,16 @@ export default function ChatSidebar() {
                 {formatTokenCount(getContextWindowForEndpoint(config.activeEndpoint))}
               </span>
             )}
-            <div className="chat-newchat-split" ref={featuresMenuRef}>
-              <button
-                type="button"
-                className="chat-iconbtn chat-newchat-main"
-                onClick={onNewChat}
-                title="New chat"
-                aria-label="New chat"
-                disabled={!hasMessages && !isStreaming}
-              >
-                <ChatAddOnIcon size={18} />
-              </button>
-              <button
-                type="button"
-                className="chat-iconbtn chat-newchat-menu-btn"
-                onClick={() => setFeaturesMenuOpen((v) => !v)}
-                title="Agent features"
-                aria-label="Agent features"
-                aria-haspopup="menu"
-                aria-expanded={featuresMenuOpen}
-              >
-                <ChevronDownIcon size={14} />
-              </button>
-              {featuresMenuOpen && (
-                <div className="chat-newchat-popover" role="menu">
-                  <label className="chat-newchat-feature">
-                    <input
-                      type="checkbox"
-                      checked={!!features.dataLoading}
-                      onChange={(e) =>
-                        setFeatures((f) => ({ ...f, dataLoading: e.target.checked }))
-                      }
-                    />
-                    Data Loading
-                  </label>
-                  <label className="chat-newchat-feature">
-                    <input
-                      type="checkbox"
-                      checked={!!features.runSql}
-                      onChange={(e) =>
-                        setFeatures((f) => ({ ...f, runSql: e.target.checked }))
-                      }
-                    />
-                    SQL
-                  </label>
-                  <label className="chat-newchat-feature">
-                    <input
-                      type="checkbox"
-                      checked={!!features.runPython}
-                      onChange={(e) =>
-                        setFeatures((f) => ({ ...f, runPython: e.target.checked }))
-                      }
-                    />
-                    Python
-                  </label>
-                  <label className="chat-newchat-feature">
-                    <input
-                      type="checkbox"
-                      checked={!!features.runReact}
-                      onChange={(e) =>
-                        setFeatures((f) => ({ ...f, runReact: e.target.checked }))
-                      }
-                    />
-                    React
-                  </label>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              className="chat-iconbtn"
+              onClick={onNewChat}
+              title="New chat"
+              aria-label="New chat"
+              disabled={!hasMessages && !isStreaming}
+            >
+              <ChatAddOnIcon size={18} />
+            </button>
             <button
               type="button"
               className="chat-iconbtn chat-mobile-close"
@@ -690,6 +743,7 @@ export default function ChatSidebar() {
         <MessagesView
           listRef={listRef}
           messages={messages}
+          systemPrompt={systemPrompt}
           pendingAssistantId={
             isStreaming && messages.length > 0
               ? messages[messages.length - 1].id
@@ -742,14 +796,12 @@ export default function ChatSidebar() {
             <button
               type="button"
               className="chat-iconbtn"
-              onClick={onPause}
-              disabled={
-                !(isStreaming && debugger_.mode === 'running' && !debugger_.pending)
-              }
-              title="Pause"
-              aria-label="Pause"
+              onClick={onStop}
+              disabled={!(isStreaming || compacting)}
+              title="Stop"
+              aria-label="Stop"
             >
-              <PauseIcon size={16} />
+              <StopIcon size={16} />
             </button>
             <button
               type="button"

@@ -93,6 +93,31 @@ export function CollapsibleToolCall({
   );
 }
 
+export function CollapsibleSystemPrompt({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-system-prompt">
+      <button
+        type="button"
+        className="chat-tool-summary"
+        data-expanded={expanded ? 'true' : 'false'}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <ChevronRightIcon size={14} />
+        <span className="chat-tool-name">System Prompt</span>
+      </button>
+      {expanded && (
+        <div className="chat-tool-body">
+          <pre>
+            <code>{text}</code>
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CollapsibleCompacted({
   summary,
   highlight,
@@ -245,6 +270,8 @@ export interface MessagesViewProps {
   emptyState?: React.ReactNode;
   /** Forwarded ref so the parent can scroll-pin etc. */
   listRef?: React.Ref<HTMLDivElement>;
+  /** When provided, rendered as a collapsible full-width "System Prompt" bubble at the top of the list. */
+  systemPrompt?: string;
 }
 
 export default function MessagesView({
@@ -254,10 +281,12 @@ export default function MessagesView({
   onRetry,
   emptyState,
   listRef,
+  systemPrompt,
 }: MessagesViewProps) {
   const hasMessages = messages.length > 0;
   return (
     <div className="chat-list" ref={listRef} role="log" aria-live="polite">
+      {systemPrompt && <CollapsibleSystemPrompt text={systemPrompt} />}
       {!hasMessages && emptyState}
       {messages.map((m) => {
         if (m.kind === 'compaction') {

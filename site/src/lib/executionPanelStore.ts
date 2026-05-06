@@ -15,11 +15,7 @@ import type {
 } from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
 import type { RunReactResult } from './reactSandbox';
-import {
-  savePanelSnapshot,
-  loadPanelSnapshot,
-  clearPanelSnapshot,
-} from './registryPersistence';
+import { savePanelSnapshot, loadPanelSnapshot } from './registryPersistence';
 import { registerCache, type Cache } from './cacheRegistry';
 
 function isSandboxFileResult(
@@ -533,10 +529,20 @@ export function setStreamingSource(
 ): void {
   if (kind === 'python') {
     if (snapshot.activeTab === 'python' && snapshot.python.source === source) return;
+    revokePythonImages();
     setSnapshot({
       ...snapshot,
       activeTab: 'python',
-      python: { ...snapshot.python, source },
+      python: {
+        ...snapshot.python,
+        source,
+        stdout: '',
+        stderr: '',
+        result: undefined,
+        errorMessage: undefined,
+        images: [],
+        imageBytes: [],
+      },
     });
     return;
   }
@@ -607,15 +613,26 @@ export function resetPanel(): void {
 }
 
 /**
- * Reset the panel AND clear the persisted snapshot. Used by the "New chat"
- * action — at that point the conversation history has been wiped, so the
- * data state should go with it.
+ * Reset the Python, SQL, and React panes to their initial state, leaving the
+ * Data pane (loaded tables) intact. Used by "New chat" to wipe tool execution
+ * output without losing the user's data. The persisted snapshot is updated
+ * via the usual `schedulePersist` path inside `setSnapshot`.
  */
-export function clearPanelAndPersistence(): void {
+export function clearNonDataPanes(): void {
   revokePythonImages();
-  setSnapshot(INITIAL_SNAPSHOT);
-  void clearPanelSnapshot().catch((err) => {
-    console.warn('panelPersistence: clear failed:', err);
+  const activeTab: PaneKind =
+    snapshot.activeTab === 'python' ||
+    snapshot.activeTab === 'sql' ||
+    snapshot.activeTab === 'react' ||
+    snapshot.activeTab === 'subagents'
+      ? 'data'
+      : snapshot.activeTab;
+  setSnapshot({
+    ...snapshot,
+    activeTab,
+    python: INITIAL_PYTHON,
+    sql: INITIAL_SQL,
+    react: INITIAL_REACT,
   });
 }
 

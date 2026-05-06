@@ -1,6 +1,6 @@
 # Sub-agents
 
-Use `RunSubAgent` to delegate a self-contained subtask to a fresh, isolated LLM context. The sub-agent gets a brief summary of this conversation as starting context, runs against the same model and tools you have, and returns a single text answer.
+Use `RunSubAgent` to delegate a self-contained subtask to a fresh, isolated LLM context. The sub-agent gets a brief summary of this conversation as starting context. RunSubAgent should usually be used to call the RunPython, RunReact, RunSQL and LoadData tools because it reduces context length. 
 
 ## RunSubAgent(prompt, task_label?)
 
@@ -11,6 +11,7 @@ Returns `{ text: string }` on success or `{ error: string }` on failure.
 
 ## When to use
 
+- Most calls to RunPython, RunSQL, RunReact and LoadData. 
 - Long, expensive sub-investigations whose intermediate output you don't need to keep in your own context (e.g. "summarise these 200 rows", "draft a 10-paragraph explainer").
 - Tasks that need a clean slate (no prior tool side-effects to keep in mind).
 

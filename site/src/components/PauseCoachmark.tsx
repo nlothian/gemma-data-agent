@@ -13,6 +13,7 @@ const EXPLAINABLE_TOOLS = new Set([
   'RunPython',
   'RunSQL',
   'RunReact',
+  'RunSubAgent',
   'LoadData',
   COMPACTION_TOOL_NAME,
 ]);
@@ -56,6 +57,8 @@ function codeAreaSelector(toolName: string): string | null {
     return '.exec-editor-section';
   }
   if (toolName === 'LoadData') return '.data-panel';
+  // RunSubAgent: no code editor to spotlight — the SubAgents tab is empty
+  // until the run starts, so the explainer panel + Step button cutouts suffice.
   return null;
 }
 

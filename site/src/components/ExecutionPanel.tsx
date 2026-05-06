@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useState, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import * as panel from '../lib/executionPanelStore';
 import {
   subscribe,
@@ -8,6 +8,7 @@ import {
   type PaneKind,
   type PaneStatus,
 } from '../lib/executionPanelStore';
+import * as agentFeatures from '../lib/agentFeaturesStore';
 import { runPython, runReact, runSQL } from '../lib/agentTools';
 import useExecutionPanelHeight, {
   MIN_HEIGHT,
@@ -44,11 +45,28 @@ export default function ExecutionPanel() {
     subAgentStore.getSnapshot,
     subAgentStore.getServerSnapshot,
   );
+  const features = useSyncExternalStore(
+    agentFeatures.subscribe,
+    agentFeatures.getSnapshot,
+    agentFeatures.getServerSnapshot,
+  );
   const active = snap.activeTab;
   const subAgentStatus = deriveSubAgentStatus(subAgents.runs);
   const [codeFolded, setCodeFolded] = useState(false);
   const [reactViewExpanded, setReactViewExpanded] = useState(false);
   const { height, setHeight } = useExecutionPanelHeight();
+
+  const tabVisible: Record<PaneKind, boolean> = {
+    data: !!features.dataLoading,
+    python: !!features.runPython,
+    sql: !!features.runSql,
+    react: !!features.runReact,
+    subagents: true,
+  };
+
+  useEffect(() => {
+    if (!tabVisible[active]) setActiveTab('subagents');
+  }, [active, tabVisible.data, tabVisible.python, tabVisible.sql, tabVisible.react]);
 
   useEffect(() => {
     if (reactViewExpanded) {
@@ -77,6 +95,14 @@ export default function ExecutionPanel() {
     setEditedReact(null);
     if (snap.react.source) setCodeFolded(false);
   }, [snap.react.source]);
+  // Also unfold on the canonical "new RunReact call" signal — catches the
+  // case where the agent re-runs identical code (source string unchanged,
+  // so the source-based effect above stays silent) but the user had folded
+  // the editor in the meantime. We do NOT touch `reactViewExpanded` here:
+  // if the user had maximized the View, leave it maximized.
+  useEffect(() => {
+    if (snap.react.status === 'pending') setCodeFolded(false);
+  }, [snap.react.status]);
 
   const pythonValue = editedPython ?? snap.python.source;
   const sqlValue = editedSql ?? snap.sql.source;
@@ -185,31 +211,40 @@ export default function ExecutionPanel() {
   return (
     <section className="exec-panel" style={{ height }} aria-label="Execution panel">
       <div className="exec-tabs" role="tablist">
-        <TabButton
-          kind="data"
-          active={active === 'data'}
-          status={snap.data.status}
-        />
-        <TabButton
-          kind="python"
-          active={active === 'python'}
-          status={snap.python.status}
-        />
-        <TabButton
-          kind="sql"
-          active={active === 'sql'}
-          status={snap.sql.status}
-        />
-        <TabButton
-          kind="react"
-          active={active === 'react'}
-          status={snap.react.status}
-        />
+        {tabVisible.data && (
+          <TabButton
+            kind="data"
+            active={active === 'data'}
+            status={snap.data.status}
+          />
+        )}
+        {tabVisible.python && (
+          <TabButton
+            kind="python"
+            active={active === 'python'}
+            status={snap.python.status}
+          />
+        )}
+        {tabVisible.sql && (
+          <TabButton
+            kind="sql"
+            active={active === 'sql'}
+            status={snap.sql.status}
+          />
+        )}
+        {tabVisible.react && (
+          <TabButton
+            kind="react"
+            active={active === 'react'}
+            status={snap.react.status}
+          />
+        )}
         <TabButton
           kind="subagents"
           active={active === 'subagents'}
           status={subAgentStatus}
         />
+        <FeatureSelector features={features} />
       </div>
       <div className="exec-body">
         {active === 'subagents' ? (
@@ -360,4 +395,69 @@ function TabButton({ kind, active, status }: TabButtonProps) {
 
 function StatusDot({ status }: { status: PaneStatus }) {
   return <span className="exec-status-dot" data-status={status} aria-hidden />;
+}
+
+interface FeatureSelectorProps {
+  features: ReturnType<typeof agentFeatures.getSnapshot>;
+}
+
+const FEATURE_OPTIONS: ReadonlyArray<{
+  key: 'dataLoading' | 'runSql' | 'runPython' | 'runReact';
+  label: string;
+}> = [
+  { key: 'dataLoading', label: 'Data Loading' },
+  { key: 'runSql', label: 'SQL' },
+  { key: 'runPython', label: 'Python' },
+  { key: 'runReact', label: 'React' },
+];
+
+function FeatureSelector({ features }: FeatureSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="exec-feature-selector" ref={wrapRef}>
+      <button
+        type="button"
+        className="exec-feature-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Feature selector"
+      >
+        <span>Feature selector</span>
+        <ChevronDownIcon size={12} />
+      </button>
+      {open && (
+        <div className="exec-feature-popover" role="menu">
+          {FEATURE_OPTIONS.map(({ key, label }) => (
+            <label key={key} className="exec-feature-option">
+              <input
+                type="checkbox"
+                checked={!!features[key]}
+                onChange={(e) => agentFeatures.setFeature(key, e.target.checked)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
