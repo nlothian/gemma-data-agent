@@ -28,7 +28,7 @@ function isSandboxFileResult(
   return (res as LoadedSandboxFileResult).kind === 'sandbox-file';
 }
 
-export type PaneKind = 'data' | 'python' | 'sql' | 'react';
+export type PaneKind = 'data' | 'python' | 'sql' | 'react' | 'subagents';
 export type PaneStatus =
   | 'idle'
   | 'pending'

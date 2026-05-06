@@ -1,0 +1,161 @@
+/**
+ * SubAgent orchestrator.
+ *
+ * A SubAgent is an isolated LLM call that runs alongside the main thread.
+ * Its job is to keep expensive context (large intermediate analyses, long
+ * tool transcripts) out of the parent conversation while still letting the
+ * parent benefit from the result.
+ *
+ * Entry point: the main agent calls the `RunSubAgent` tool — see
+ * `agentTools.ts`. The parent context summary is produced via the existing
+ * `compactConversation` path so we don't drag the whole transcript into the
+ * sub-thread.
+ */
+
+import { generateId } from '../browser';
+import {
+  buildAgentSystemPrompt,
+  buildAgentTools,
+  type AgentPromptFeatures,
+} from '../agentTools';
+import { compactConversation } from '../compactConversation';
+import { streamChat, type StreamChatMessage } from '../streamChat';
+import type { LLMConfig } from '../../types/llm';
+import * as subAgentStore from './store';
+import type { ChatMessage } from '../../types/chat';
+
+export interface RunSubAgentArgs {
+  prompt: string;
+  taskLabel?: string;
+  config: LLMConfig;
+  /** Messages from the parent thread to summarise into the SubAgent's seed context. */
+  parentMessages: ChatMessage[];
+  features: AgentPromptFeatures;
+  signal?: AbortSignal;
+}
+
+export interface SubAgentResultOk {
+  text: string;
+}
+
+export interface SubAgentResultErr {
+  error: string;
+}
+
+export type RunSubAgentResult = SubAgentResultOk | SubAgentResultErr;
+
+const SUBAGENT_SYSTEM_HEADER =
+  'You are a sub-agent invoked by the main agent in an isolated context. ' +
+  'Answer concisely and return your final result as plain text — do not ' +
+  'address the user directly.';
+
+export async function runSubAgent(
+  args: RunSubAgentArgs,
+): Promise<RunSubAgentResult> {
+  const { prompt, taskLabel, config, parentMessages, features, signal } = args;
+
+  const label = (taskLabel || prompt || 'SubAgent').slice(0, 80);
+  const runId = subAgentStore.startRun({ label });
+
+  const userMsg: ChatMessage = {
+    id: generateId(),
+    role: 'user',
+    content: prompt,
+    createdAt: Date.now(),
+  };
+  const assistantMsg: ChatMessage = {
+    id: generateId(),
+    role: 'assistant',
+    content: '',
+    createdAt: Date.now(),
+  };
+  subAgentStore.appendMessage(runId, userMsg);
+  subAgentStore.appendMessage(runId, assistantMsg);
+
+  try {
+    const summary = await summariseParent(parentMessages, config, signal);
+    const baseSystem = buildAgentSystemPrompt(features);
+    const systemPrompt =
+      SUBAGENT_SYSTEM_HEADER +
+      '\n\n' +
+      baseSystem +
+      (summary ? `\n\n## Parent context\n${summary}` : '');
+
+    const finalText = await runTextSubAgent({
+      systemPrompt,
+      prompt,
+      config,
+      features,
+      signal,
+      runId,
+    });
+
+    subAgentStore.setStatus(runId, 'done');
+    return { text: finalText };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    subAgentStore.setStatus(runId, 'error', message);
+    return { error: message };
+  }
+}
+
+async function summariseParent(
+  parentMessages: ChatMessage[],
+  config: LLMConfig,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  // Skip the compaction call entirely on an empty parent — `compactConversation`
+  // throws "Nothing to compact." in that case and the SubAgent shouldn't fail
+  // just because there's no prior context to summarise.
+  const hasContent = parentMessages.some(
+    (m) => m.role !== 'system' && (m.content ?? '').trim().length > 0,
+  );
+  if (!hasContent) return '';
+  try {
+    return await compactConversation({ config, toCompact: parentMessages, signal });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Nothing to compact.') return '';
+    throw err;
+  }
+}
+
+async function runTextSubAgent(opts: {
+  systemPrompt: string;
+  prompt: string;
+  config: LLMConfig;
+  features: AgentPromptFeatures;
+  signal?: AbortSignal;
+  runId: string;
+}): Promise<string> {
+  const { systemPrompt, prompt, config, features, signal, runId } = opts;
+  const messages: StreamChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: prompt },
+  ];
+
+  // Strip RunSubAgent from the sub-agent's own toolset so a malformed sub
+  // can't recursively spawn more sub-agents.
+  const tools = buildAgentTools(features).filter((t) => t.name !== 'RunSubAgent');
+
+  return new Promise<string>((resolve, reject) => {
+    void streamChat({
+      config,
+      messages,
+      tools,
+      signal,
+      onToken: (delta) => {
+        subAgentStore.updateLastAssistant(runId, delta);
+      },
+      onHistoryDelta: () => {
+        // Not persisted — the SubAgent's UI uses `content` directly and the
+        // run is discarded on New Conversation / reload anyway.
+      },
+      onUsage: () => {
+        // Skip token reporting — sub-agent usage is intentionally separate
+        // from the parent's pressure gauge.
+      },
+      onDone: (full) => resolve(full),
+      onError: (err) => reject(err),
+    });
+  });
+}

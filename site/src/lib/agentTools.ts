@@ -3,6 +3,7 @@ import dataLoadingMd from '../prompts/agent/dataLoading.md?raw';
 import runSqlMd from '../prompts/agent/runSql.md?raw';
 import runPythonMd from '../prompts/agent/runPython.md?raw';
 import runReactMd from '../prompts/agent/runReact.md?raw';
+import runSubAgentMd from '../prompts/agent/runSubAgent.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -421,6 +422,46 @@ export async function runAgentTool(
   if (name === 'ListInputs') {
     return runListInputs();
   }
+  if (name === 'RunSubAgent') {
+    const promptText = typeof obj.prompt === 'string' ? obj.prompt : '';
+    const taskLabel = typeof obj.task_label === 'string' ? obj.task_label : undefined;
+    if (!promptText.trim()) {
+      return { error: 'RunSubAgent requires a non-empty `prompt`.' } satisfies ToolError;
+    }
+    const [{ runSubAgent }, { getSubAgentContext }] = await Promise.all([
+      import('./subAgents/runSubAgent'),
+      import('./subAgents/context'),
+    ]);
+    const ctx = getSubAgentContext();
+    if (!ctx) {
+      return {
+        error:
+          'RunSubAgent is unavailable: no parent conversation context is registered.',
+      } satisfies ToolError;
+    }
+    return runWithGate({
+      toolName: 'RunSubAgent',
+      gateInput: { prompt: promptText, task_label: taskLabel },
+      signal,
+      onPending: () => panel.setActiveTab('subagents'),
+      onAborted: () => {
+        // No pane state to update — the sub-agent store carries its own status.
+      },
+      onRunning: () => panel.setActiveTab('subagents'),
+      onResult: () => {
+        // Same — final state is reflected in the SubAgents store.
+      },
+      run: () =>
+        runSubAgent({
+          prompt: promptText,
+          taskLabel,
+          config: ctx.config,
+          parentMessages: ctx.parentMessages,
+          features: ctx.features,
+          signal,
+        }),
+    });
+  }
   if (name === 'LoadData') {
     const rawUrl = typeof obj.url === 'string' ? obj.url : '';
     // The agent occasionally invents a `sandbox:` (or `file:`) URI scheme for
@@ -601,6 +642,38 @@ export const AGENT_TOOLS: AgentToolSpec[] = [
     },
   },
   {
+    name: 'RunSubAgent',
+    description:
+      'Run a self-contained subtask in a fresh, isolated LLM context. The ' +
+      'sub-agent receives a short summary of this conversation as seed ' +
+      'context, has access to the same tools you do (except `RunSubAgent` ' +
+      'itself — sub-agents cannot recurse), and returns a single text ' +
+      'answer. Returns `{ text: string }` on success or `{ error: string }`. ' +
+      'Use it to delegate expensive sub-investigations whose intermediate ' +
+      'output you do NOT need to keep in your own context. The sub-agent\'s ' +
+      'UI runs in the SubAgents tab; only the returned text comes back to ' +
+      'you.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description:
+            'The task for the sub-agent. Be specific — the sub-agent only ' +
+            'sees this prompt plus a short summary of the parent thread.',
+        },
+        task_label: {
+          type: 'string',
+          description:
+            'Optional short label shown in the SubAgents tab. Defaults to a ' +
+            'slice of the prompt.',
+        },
+      },
+      required: ['prompt'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'ListInputs',
     description:
       'List every input the agent can work with. Returns ' +
@@ -633,6 +706,7 @@ export interface AgentPromptFeatures {
   runSql?: boolean;
   runPython?: boolean;
   runReact?: boolean;
+  runSubAgent?: boolean;
 }
 
 const DEFAULT_FEATURES: AgentPromptFeatures = {
@@ -640,6 +714,7 @@ const DEFAULT_FEATURES: AgentPromptFeatures = {
   runSql: true,
   runPython: true,
   runReact: true,
+  runSubAgent: true,
 };
 
 export function buildAgentSystemPrompt(
@@ -650,6 +725,7 @@ export function buildAgentSystemPrompt(
   if (features.runSql) parts.push(runSqlMd);
   if (features.runPython) parts.push(runPythonMd);
   if (features.runReact) parts.push(runReactMd);
+  if (features.runSubAgent) parts.push(runSubAgentMd);
   return parts.map((s) => s.trim()).join('\n\n');
 }
 
@@ -661,6 +737,7 @@ export function buildAgentTools(
     if (tool.name === 'RunSQL') return !!features.runSql;
     if (tool.name === 'RunPython') return !!features.runPython;
     if (tool.name === 'RunReact') return !!features.runReact;
+    if (tool.name === 'RunSubAgent') return !!features.runSubAgent;
     return true;
   });
 }
