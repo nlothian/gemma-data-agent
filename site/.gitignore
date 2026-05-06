@@ -20,3 +20,7 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# generated source bundle (built by site/scripts/sourcecode-vite-plugin.mjs)
+public/sourcecode.zip
+public/sourcecode.sha

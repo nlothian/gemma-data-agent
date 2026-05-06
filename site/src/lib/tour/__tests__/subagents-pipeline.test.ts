@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import subAgentsPipeline, {
   PROMPT,
   TRAIN_CSV_URL,
-} from '../stages/09-subagents-pipeline';
+} from '../stages/10-subagents-pipeline';
 import { DEFAULT_TOUR } from '../stages';
 import { ACTION_NAMES } from '../actions';
 

@@ -1,16 +1,69 @@
 import { defineConfig } from "astro/config";
 import mdx from "@astrojs/mdx";
 import react from "@astrojs/react";
+import sourcecodePlugin from "./scripts/sourcecode-vite-plugin.mjs";
 
 export default defineConfig({
   integrations: [mdx(), react()],
   vite: {
+    plugins: [sourcecodePlugin()],
+    // Under pnpm, @uiw/react-codemirror's ESM lives in a nested .pnpm path and
+    // resolves @codemirror/state through its own symlinked deps, while the
+    // standalone include entry resolves through the top-level node_modules.
+    // esbuild treats those two paths as separate modules and emits two copies,
+    // breaking `instanceof Extension`. `dedupe` forces both resolutions to the
+    // single canonical instance.
+    resolve: {
+      dedupe: [
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/language',
+        '@codemirror/commands',
+        '@codemirror/autocomplete',
+        '@codemirror/lint',
+        '@codemirror/search',
+        '@codemirror/theme-one-dark',
+        'codemirror',
+      ],
+    },
     optimizeDeps: {
       exclude: ['@duckdb/duckdb-wasm', '@mediapipe/tasks-genai'],
       // apache-arrow is only reached via the dynamic import of ./duckdb, so
       // Vite's static scan misses it. Pre-bundle it explicitly so the dep URL
       // is stable when the agent's tool wrappers eventually fire.
-      include: ['apache-arrow'],
+      // fflate is imported only inside a Web Worker (sourcecodeSync.worker.ts)
+      // — Vite's main-thread scan misses worker imports in dev, so the first
+      // worker spawn races a re-optimisation and fails.
+      // CodeMirror lang packages each ship their own copy of @codemirror/state
+      // and @codemirror/view; pre-bundling them together makes esbuild emit a
+      // single shared instance, which is required for CodeMirror's
+      // `instanceof Extension` checks to succeed (otherwise the SourcecodeFileViewer
+      // and CodeView islands throw "Unrecognized extension value in extension set").
+      // Transitive @uiw/react-codemirror deps (autocomplete, lint, search,
+      // theme-one-dark, codemirror, basic-setup) are listed explicitly so they
+      // don't get discovered late and trigger a mid-session re-optimisation.
+      include: [
+        'apache-arrow',
+        'fflate',
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/language',
+        '@codemirror/commands',
+        '@codemirror/autocomplete',
+        '@codemirror/lint',
+        '@codemirror/search',
+        '@codemirror/theme-one-dark',
+        '@codemirror/lang-javascript',
+        '@codemirror/lang-python',
+        '@codemirror/lang-sql',
+        '@codemirror/lang-css',
+        '@codemirror/lang-html',
+        '@codemirror/lang-json',
+        '@codemirror/lang-markdown',
+        'codemirror',
+        '@uiw/codemirror-extensions-basic-setup',
+        '@uiw/react-codemirror',
+      ],
     },
   },
 });

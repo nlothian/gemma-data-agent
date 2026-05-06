@@ -624,6 +624,7 @@ export default function ChatSidebar() {
           listRef={listRef}
           messages={messages}
           systemPrompt={systemPrompt}
+          tourId="chat.conversation"
           pendingAssistantId={
             isStreaming && messages.length > 0
               ? messages[messages.length - 1].id

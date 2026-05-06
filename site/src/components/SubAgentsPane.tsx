@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import * as subAgentStore from '../lib/subAgents/store';
 import MessagesView from './MessagesView';
 import type { SubAgentRun, SubAgentStatus } from '../lib/subAgents/store';
@@ -12,6 +12,37 @@ export default function SubAgentsPane() {
   const { runs, activeRunId } = snap;
   const active =
     runs.find((r) => r.id === activeRunId) ?? runs[runs.length - 1] ?? null;
+
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const wasAtBottomRef = useRef(true);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const onScroll = (): void => {
+      wasAtBottomRef.current =
+        el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Snap to bottom when switching to a different run.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    wasAtBottomRef.current = true;
+    el.scrollTop = el.scrollHeight;
+  }, [active?.id]);
+
+  // Keep streaming output in view as long as the user hasn't scrolled away.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    if (wasAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [active?.messages, active?.status]);
 
   if (runs.length === 0) {
     return (
@@ -34,7 +65,7 @@ export default function SubAgentsPane() {
           />
         ))}
       </div>
-      <div className="exec-subagents-body">
+      <div className="exec-subagents-body" ref={bodyRef}>
         {active ? <SubAgentRunBody run={active} /> : null}
       </div>
     </div>
