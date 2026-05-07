@@ -34,6 +34,11 @@ export default defineConfig({
       // fflate is imported only inside a Web Worker (sourcecodeSync.worker.ts)
       // — Vite's main-thread scan misses worker imports in dev, so the first
       // worker spawn races a re-optimisation and fails.
+      // typescript is dynamically imported only when the agent's React sandbox
+      // tool first compiles a snippet (reactSandbox.ts). Pre-bundle it so the
+      // dep URL hash is stable from page load and the lazy import doesn't race
+      // a mid-session re-optimisation ("Failed to fetch dynamically imported
+      // module .../deps/typescript.js?v=...").
       // CodeMirror lang packages each ship their own copy of @codemirror/state
       // and @codemirror/view; pre-bundling them together makes esbuild emit a
       // single shared instance, which is required for CodeMirror's
@@ -45,6 +50,7 @@ export default defineConfig({
       include: [
         'apache-arrow',
         'fflate',
+        'typescript',
         '@codemirror/state',
         '@codemirror/view',
         '@codemirror/language',
