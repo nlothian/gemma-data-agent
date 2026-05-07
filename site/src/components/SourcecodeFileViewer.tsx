@@ -13,7 +13,8 @@ import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
-import type { OpenFileTarget } from './SourcecodeOverlay';
+import type { OpenFileTarget } from '../lib/sourcecode/openFileStore';
+import { readSourceFile } from '../lib/sourcecode/readSource';
 
 interface SourcecodeFileViewerProps {
   file: OpenFileTarget;
@@ -96,6 +97,22 @@ function computeAbsoluteOffset(text: string, line: number, col: number): number 
   return Math.min(text.length, pos + col);
 }
 
+/**
+ * 1-based start of `line` and end-of-content of `endLine`. End offset is the
+ * char before the next newline (or text.length if last line).
+ */
+function computeRangeOffsets(
+  text: string,
+  startLine: number,
+  endLine: number,
+): { start: number; end: number } {
+  const start = computeAbsoluteOffset(text, startLine, 0);
+  const endLineStart = computeAbsoluteOffset(text, endLine, 0);
+  const nl = text.indexOf('\n', endLineStart);
+  const end = nl === -1 ? text.length : nl;
+  return { start, end: Math.max(start, end) };
+}
+
 function pickLanguageExtension(path: string): Extension[] {
   const lower = path.toLowerCase();
   const dotIdx = lower.lastIndexOf('.');
@@ -157,17 +174,7 @@ export default function SourcecodeFileViewer({ file, onBack }: SourcecodeFileVie
 
     (async () => {
       try {
-        const root = await navigator.storage.getDirectory();
-        const scRoot = await root.getDirectoryHandle('sourcecode');
-        const filesRoot = await scRoot.getDirectoryHandle('files');
-        const segments = file.path.split('/');
-        let dir: FileSystemDirectoryHandle = filesRoot;
-        for (let i = 0; i < segments.length - 1; i++) {
-          dir = await dir.getDirectoryHandle(segments[i]);
-        }
-        const fileHandle = await dir.getFileHandle(segments[segments.length - 1]);
-        const blob = await fileHandle.getFile();
-        const content = await blob.text();
+        const content = await readSourceFile(file.path);
         if (!cancelled) {
           setText(content);
         }
@@ -188,10 +195,13 @@ export default function SourcecodeFileViewer({ file, onBack }: SourcecodeFileVie
 
   const absOffsets = useMemo(() => {
     if (text === null) return null;
+    if (file.kind === 'range') {
+      return computeRangeOffsets(text, file.startLine, file.endLine);
+    }
     const start = computeAbsoluteOffset(text, file.line, file.matchStart);
     const end = computeAbsoluteOffset(text, file.line, file.matchEnd);
     return { start, end };
-  }, [text, file.line, file.matchStart, file.matchEnd]);
+  }, [text, file]);
 
   const extensions = useMemo<Extension[]>(() => {
     if (absOffsets === null) return [];
@@ -222,7 +232,9 @@ export default function SourcecodeFileViewer({ file, onBack }: SourcecodeFileVie
           ← Back to results
         </button>
         <div style={styles.pathLabel}>
-          {file.path}:{file.line}
+          {file.kind === 'range'
+            ? `${file.path}:${file.startLine}${file.endLine !== file.startLine ? `-${file.endLine}` : ''}`
+            : `${file.path}:${file.line}`}
         </div>
       </div>
       <div style={styles.content}>

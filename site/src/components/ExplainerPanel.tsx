@@ -24,12 +24,15 @@ import {
   DataTableIcon,
   CompressIcon,
   CollapseContentIcon,
+  ExpandContentIcon,
   PythonLogoIcon,
   ReactLogoIcon,
   LiveHelpIcon,
+  ChatInfoIcon,
   PlayIcon,
 } from './Icons';
 import {
+  setExecCollapsed,
   setExplainerCollapsed,
   usePaneCollapse,
   useRestoreFocusOnMount,
@@ -42,6 +45,7 @@ import * as tokenUsageStore from '../lib/tokenUsageStore';
 import { mapMessagesForLLM } from '../lib/autoCompaction';
 import type { ChatMessage } from '../types/chat';
 import explainerConversationSystemPrompt from '../prompts/explainerConversationSystemPrompt.md?raw';
+import { EXPLAINER_TOOLS, runExplainerTool } from '../lib/explainerTools';
 
 const MAX_STREAMING_CONVERSATIONS = 10;
 
@@ -50,7 +54,9 @@ const SNIPPET_LEN = 14;
 export default function ExplainerPanel() {
   const debug = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const { config, ready: cfgReady } = useLLMConfig();
-  const [state, dispatch] = useReducer(reduce, initialState);
+  const [state, dispatch] = useReducer(reduce, initialState, (init) =>
+    reduce(init, { type: 'NEW_CONVERSATION' }),
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
   const conversationAbortsRef = useRef<Map<string, AbortController>>(new Map());
 
@@ -116,7 +122,8 @@ export default function ExplainerPanel() {
       await streamChat({
         config,
         messages: requestMessages,
-        tools: [],
+        tools: EXPLAINER_TOOLS,
+        toolDispatcher: runExplainerTool,
         signal: controller.signal,
         onToken: (delta) =>
           dispatch({ type: 'CONVERSATION_STREAM_TOKEN', entryId, delta }),
@@ -154,6 +161,10 @@ export default function ExplainerPanel() {
   useEffect(() => {
     if (activeEntry?.kind !== 'paused-compaction') setPreviewOpen(false);
   }, [activeEntry?.kind]);
+
+  useEffect(() => {
+    if (state.entries.length === 0) dispatch({ type: 'NEW_CONVERSATION' });
+  }, [state.entries.length]);
 
   // Kick off summarisation for the active entry's code/sql/prompt. We trigger
   // off the entry's id so switching tabs (or appending a new tab) re-evaluates,
@@ -216,18 +227,31 @@ export default function ExplainerPanel() {
       >
         <div className="explainer-header">
           <span className="explainer-title">Explainer</span>
-          <button
-            ref={collapseBtnRef}
-            type="button"
-            className="pane-collapse-btn pane-collapse-btn--explainer"
-            aria-label="Collapse Explainer pane"
-            aria-expanded={true}
-            aria-controls="explainer-panel"
-            title="Collapse Explainer"
-            onClick={() => setExplainerCollapsed(true)}
-          >
-            <CollapseContentIcon size={16} />
-          </button>
+          <div className="explainer-header-actions">
+            <button
+              ref={collapseBtnRef}
+              type="button"
+              className="pane-collapse-btn pane-collapse-btn--explainer"
+              aria-label="Collapse Explainer pane"
+              aria-expanded={true}
+              aria-controls="explainer-panel"
+              title="Collapse Explainer"
+              onClick={() => setExplainerCollapsed(true)}
+            >
+              <CollapseContentIcon size={16} />
+            </button>
+            {!collapse.exec && (
+              <button
+                type="button"
+                className="pane-collapse-btn pane-collapse-btn--explainer-expand"
+                aria-label="Maximize Explainer pane"
+                title="Maximize Explainer"
+                onClick={() => setExecCollapsed(true)}
+              >
+                <ExpandContentIcon size={16} />
+              </button>
+            )}
+          </div>
         </div>
         <ExplainerTabs
           state={state}
@@ -310,7 +334,7 @@ function ExplainerTabs({
           disabled={liveHelpDisabled}
           onClick={() => dispatch({ type: 'NEW_CONVERSATION' })}
         >
-          <LiveHelpIcon size={16} />
+          <ChatInfoIcon size={16} />
         </button>
       </div>
     </div>

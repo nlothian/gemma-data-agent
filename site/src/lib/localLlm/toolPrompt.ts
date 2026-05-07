@@ -42,8 +42,57 @@ export interface InternalMessage {
 
 // ---- formatting argument values to the Gemma 4 wire format -----------------
 
+/**
+ * Every structural delimiter the streaming parser searches for. Tool-result
+ * content that contains any of these as a literal substring would let the
+ * model (or attacker-controlled source content surfaced via GrepCodebase /
+ * ReadLines / RunPython stdout / RunSubAgent output) close a string early
+ * and inject a synthetic tool call, turn, or thought channel.
+ */
+const STRUCTURAL_DELIMITERS = [
+  STRING_DELIM,
+  TOOL_CALL_OPEN,
+  TOOL_CALL_CLOSE,
+  TOOL_RESPONSE_OPEN,
+  TOOL_RESPONSE_CLOSE,
+  TURN_OPEN,
+  TURN_CLOSE,
+  TOOL_DECL_OPEN,
+  TOOL_DECL_CLOSE,
+  CHANNEL_OPEN,
+  CHANNEL_CLOSE,
+] as const;
+
+/**
+ * Defang every structural delimiter by inserting a zero-width space between
+ * the leading `<` and the next character. Why ZWSP: it breaks the parser's
+ * literal `indexOf` match (so `<|"|>` no longer equals `<​|"|>`), is
+ * invisible when the model renders the result, and tokenises differently so
+ * the model is far less likely to mimic the structural form. Applied on
+ * tool-result content only — never to model-emitted text.
+ */
+export function escapeForToolPrompt(s: string): string {
+  if (!s) return s;
+  let out = s;
+  for (const delim of STRUCTURAL_DELIMITERS) {
+    if (out.indexOf(delim) === -1) continue;
+    // Insert ZWSP after the first char (`<`) so the delimiter no longer
+    // matches as a literal substring. Loop because a single replace pass
+    // can leave overlapping matches behind (e.g. `<<|"|>`).
+    const escaped = `${delim[0]}​${delim.slice(1)}`;
+    while (out.indexOf(delim) !== -1) {
+      out = out.split(delim).join(escaped);
+    }
+  }
+  return out;
+}
+
 function formatString(s: string): string {
-  return `${STRING_DELIM}${s}${STRING_DELIM}`;
+  // All callers of formatString pass content that will end up bracketed by
+  // STRING_DELIM in the prompt. Escaping here covers every code path that
+  // surfaces tool-result / argument data — including nested strings inside
+  // arrays/objects via formatArgValue.
+  return `${STRING_DELIM}${escapeForToolPrompt(s)}${STRING_DELIM}`;
 }
 
 /**
