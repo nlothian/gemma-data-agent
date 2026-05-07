@@ -54,6 +54,8 @@ export const DatabaseIcon = (p: IconProps) => <MaterialIcon name="database" {...
 export const RobotIcon = (p: IconProps) => <MaterialIcon name="smart_toy" {...p} />;
 export const DataTableIcon = (p: IconProps) => <MaterialIcon name="table_chart" {...p} />;
 export const LiveHelpIcon = (p: IconProps) => <MaterialIcon name="live_help" {...p} />;
+export const CollapseContentIcon = (p: IconProps) => <MaterialIcon name="collapse_content" {...p} />;
+export const ExpandContentIcon = (p: IconProps) => <MaterialIcon name="expand_content" {...p} />;
 
 // Brand logos — Material Symbols has no Python/React glyph, so we inline the
 // official marks. Both render with `currentColor` so they pick up the tab's

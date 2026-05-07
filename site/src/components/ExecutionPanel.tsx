@@ -21,8 +21,13 @@ import ReactPanel from './ReactPanel';
 import SqlResultGrid from './SqlResultGrid';
 import SubAgentsPane from './SubAgentsPane';
 import * as subAgentStore from '../lib/subAgents/store';
-import { ChevronDownIcon, PlayIcon } from './Icons';
+import { ChevronDownIcon, CollapseContentIcon, PlayIcon } from './Icons';
 import { registerExecBridge } from '../lib/tour/bridge';
+import {
+  setExecCollapsed,
+  usePaneCollapse,
+  useRestoreFocusOnMount,
+} from '../lib/paneCollapseStore';
 
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
@@ -51,6 +56,7 @@ export default function ExecutionPanel() {
     agentFeatures.getSnapshot,
     agentFeatures.getServerSnapshot,
   );
+  const collapse = usePaneCollapse();
   const active = snap.activeTab;
   const subAgentStatus = deriveSubAgentStatus(subAgents.runs);
   const [codeFolded, setCodeFolded] = useState(false);
@@ -222,12 +228,19 @@ export default function ExecutionPanel() {
     [height, setHeight],
   );
 
+  const collapseBtnRef = useRef<HTMLButtonElement>(null);
+  useRestoreFocusOnMount('exec-collapse-btn', collapseBtnRef, !collapse.exec);
+
+  if (collapse.exec) return null;
+
   return (
     <section
+      id="exec-panel"
       className="exec-panel"
       style={{ height }}
       aria-label="Execution panel"
       data-tour-id="exec.panel"
+      data-explainer-collapsed={collapse.explainer ? 'true' : 'false'}
     >
       <div className="exec-tabs" role="tablist">
         {tabVisible.data && (
@@ -268,6 +281,18 @@ export default function ExecutionPanel() {
           open={featureMenuOpen}
           setOpen={setFeatureMenuOpen}
         />
+        <button
+          ref={collapseBtnRef}
+          type="button"
+          className="pane-collapse-btn pane-collapse-btn--exec"
+          aria-label="Collapse Agents pane"
+          aria-expanded={true}
+          aria-controls="exec-panel"
+          title="Collapse Agents"
+          onClick={() => setExecCollapsed(true)}
+        >
+          <CollapseContentIcon size={16} />
+        </button>
       </div>
       <div className="exec-body">
         {active === 'subagents' ? (

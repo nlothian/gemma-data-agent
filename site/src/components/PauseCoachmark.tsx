@@ -6,6 +6,7 @@ import {
   subscribe,
 } from '../lib/toolDebugger';
 import { COMPACTION_TOOL_NAME } from '../lib/autoCompaction';
+import { popForceExpand, pushForceExpand } from '../lib/paneCollapseStore';
 import SpotlightOverlay from './SpotlightOverlay';
 import type { CutoutId } from '../lib/tour/cutouts';
 
@@ -50,12 +51,18 @@ export default function PauseCoachmark(): JSX.Element | null {
     if (!shouldShow) setDismissed(false);
   }, [shouldShow]);
 
+  const open = shouldShow && !dismissed;
+
+  useEffect(() => {
+    if (!open) return;
+    pushForceExpand('pause');
+    return () => popForceExpand('pause');
+  }, [open]);
+
   const cutouts = useMemo<ReadonlyArray<CutoutId>>(
     () => (toolName ? cutoutsForTool(toolName) : EMPTY_CUTOUTS),
     [toolName],
   );
-
-  const open = shouldShow && !dismissed;
 
   const handleDismiss = useCallback(() => {
     setDismissed(true);

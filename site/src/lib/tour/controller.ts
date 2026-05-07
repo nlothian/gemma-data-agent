@@ -8,6 +8,7 @@
 
 import type { TourDefinition, TourSnapshot, TourStage, TourStageStatus } from './types';
 import { performAction } from './actions';
+import { popForceExpand, pushForceExpand } from '../paneCollapseStore';
 
 const INITIAL: TourSnapshot = {
   running: false,
@@ -109,6 +110,7 @@ function enterStage(index: number): void {
 
 export function startTour(def: TourDefinition): void {
   activeDef = def;
+  pushForceExpand('tour');
   enterStage(0);
 }
 
@@ -123,6 +125,7 @@ export function next(): void {
 }
 
 export function end(): void {
+  popForceExpand('tour');
   activeDef = null;
   actionGen++;
   setSnapshot(INITIAL);

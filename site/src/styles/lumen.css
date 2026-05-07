@@ -75,6 +75,11 @@
   --s-11: 80px;
   --s-12: 120px;
 
+  /* Collapsed-pane rail in the left gutter. The container's left padding is
+     --rail-w + 12px so the rail sits 6px from the edge with 6px breathing
+     room before the pane content. */
+  --rail-w: 36px;
+
   /* Elevation */
   --el-1: 0 1px 2px rgba(15, 20, 25, 0.04), 0 1px 1px rgba(15, 20, 25, 0.03);
   --el-2: 0 2px 4px rgba(15, 20, 25, 0.05), 0 4px 12px rgba(15, 20, 25, 0.04);
@@ -1399,7 +1404,8 @@ body.chat-resizing {
 /* When the exec panel is on the page, let main span the full viewport width
    with a single left gutter. The chat-sidebar reservation (body.has-chat main)
    still handles the right side. */
-main.container:has(section.exec-panel) {
+main.container:has(section.exec-panel),
+main.container:has(section.explainer-panel) {
   max-width: none;
   padding-left: var(--s-7);
   padding-right: 0;
@@ -1407,8 +1413,14 @@ main.container:has(section.exec-panel) {
   flex-direction: column;
   height: calc(100vh - var(--nav-h));
   overflow: hidden;
+  position: relative;
 }
-body.has-chat main.container:has(section.exec-panel) {
+main.container:has(section.exec-panel):has(.pane-rail),
+main.container:has(section.explainer-panel):has(.pane-rail) {
+  padding-left: calc(var(--rail-w) + 12px);
+}
+body.has-chat main.container:has(section.exec-panel),
+body.has-chat main.container:has(section.explainer-panel) {
   padding-right: calc(var(--chat-w) + var(--chat-gutter) * 2);
 }
 
@@ -1429,15 +1441,17 @@ body.has-chat main.container:has(section.exec-panel) {
 body.react-view-expanded .explainer-panel {
   display: none;
 }
-body.react-view-expanded .exec-panel {
+body.react-view-expanded .exec-panel,
+.exec-panel[data-explainer-collapsed="true"] {
   flex: 1;
   height: auto !important;
   max-height: none;
 }
-body.react-view-expanded .exec-panel .exec-editor-section {
+body.react-view-expanded .exec-panel .exec-resize-handle,
+.exec-panel[data-explainer-collapsed="true"] .exec-resize-handle {
   display: none;
 }
-body.react-view-expanded .exec-panel .exec-resize-handle {
+body.react-view-expanded .exec-panel .exec-editor-section {
   display: none;
 }
 
@@ -1712,6 +1726,7 @@ body.exec-resizing {
 .explainer-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: var(--s-2) var(--s-3);
   background: var(--snow);
   border-bottom: 1px solid var(--mist);
@@ -2718,5 +2733,77 @@ body.exec-resizing {
   border-radius: var(--r-8);
   font-size: 13px;
   white-space: pre-wrap;
+}
+
+/* =========================================================
+   Collapsible pane controls (collapse buttons + rail tabs)
+   ========================================================= */
+
+.pane-collapse-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--steel);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pane-collapse-btn:hover {
+  background: var(--cloud);
+  color: var(--graphite);
+}
+body.react-view-expanded .exec-tabs .pane-collapse-btn {
+  display: none;
+}
+
+.pane-rail {
+  position: fixed;
+  left: 6px;
+  top: calc(var(--nav-h) + var(--s-3));
+  bottom: var(--s-3);
+  width: var(--rail-w);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 5;
+  pointer-events: none;
+}
+.pane-rail > * { pointer-events: auto; }
+.pane-rail-tab {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: 240px;
+  align-self: flex-start;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 8px 0;
+  gap: 12px;
+  background: var(--snow);
+  border: 1px solid var(--mist);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--graphite);
+}
+.pane-rail-tab:hover {
+  background: var(--cloud);
+}
+.pane-rail-tab:focus-visible {
+  outline: 2px solid var(--accent, var(--graphite));
+  outline-offset: 2px;
+}
+.pane-rail-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
