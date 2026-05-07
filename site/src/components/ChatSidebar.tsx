@@ -363,6 +363,29 @@ export default function ChatSidebar() {
         onToken: (delta) => updateLastAssistant(delta),
         onHistoryDelta: (delta) => appendLastAssistantHistory(delta),
         onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
+        onMidStreamCompaction: ({ summary }) => {
+          // Insert the marker before the in-flight assistant turn (the tail
+          // of history while streaming) so it shows up in the same position
+          // as a normal post-turn compaction.
+          const current = historyRef.current;
+          const tail = current[current.length - 1];
+          const isStreamingAssistant =
+            tail && tail.role === 'assistant' && !tail.error;
+          const marker: ChatMessage = {
+            id: generateId(),
+            role: 'user',
+            kind: 'compaction',
+            content: summary,
+            createdAt: Date.now(),
+          };
+          const next = isStreamingAssistant
+            ? [...current.slice(0, -1), marker, tail]
+            : [...current, marker];
+          replaceMessages(next);
+          flush();
+          setHighlightCompactedId(marker.id);
+          setTimeout(() => setHighlightCompactedId(null), 5000);
+        },
         onDone: () => {
           flush();
           setIsStreaming(false);

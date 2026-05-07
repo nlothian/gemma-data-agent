@@ -14,7 +14,7 @@ import type { TokenUsage } from './tokenUsageStore';
 
 export const COMPACTION_TOOL_NAME = 'Compaction';
 
-const COMPACTION_HEADER =
+export const COMPACTION_HEADER =
   '\n\n# Summary of earlier conversation (older turns were compacted)\n';
 
 export interface CompactionSlice {
