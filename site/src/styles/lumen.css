@@ -1079,6 +1079,28 @@ body.chat-resizing {
   color: var(--aqua-700);
 }
 
+.chat-sourcecode-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--aqua-600);
+  font: inherit;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-sourcecode-link:hover {
+  color: var(--aqua-700);
+}
+.chat-sourcecode-link:focus-visible {
+  outline: 2px solid var(--aqua-500);
+  outline-offset: 2px;
+  border-radius: var(--r-4);
+}
+
 .chat-tool-call {
   margin: var(--s-1) 0;
   border: 1px solid var(--mist);

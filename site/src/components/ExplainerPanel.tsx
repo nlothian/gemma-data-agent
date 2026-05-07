@@ -42,6 +42,7 @@ import * as tokenUsageStore from '../lib/tokenUsageStore';
 import { mapMessagesForLLM } from '../lib/autoCompaction';
 import type { ChatMessage } from '../types/chat';
 import explainerConversationSystemPrompt from '../prompts/explainerConversationSystemPrompt.md?raw';
+import { EXPLAINER_TOOLS, runExplainerTool } from '../lib/explainerTools';
 
 const MAX_STREAMING_CONVERSATIONS = 10;
 
@@ -116,7 +117,8 @@ export default function ExplainerPanel() {
       await streamChat({
         config,
         messages: requestMessages,
-        tools: [],
+        tools: EXPLAINER_TOOLS,
+        toolDispatcher: runExplainerTool,
         signal: controller.signal,
         onToken: (delta) =>
           dispatch({ type: 'CONVERSATION_STREAM_TOKEN', entryId, delta }),

@@ -128,6 +128,7 @@ export default function SourcecodeResultsList({
                 style={styles.row}
                 onClick={() =>
                   onOpenFile({
+                    kind: 'match',
                     path: r.path,
                     line: r.line,
                     matchStart: r.matchStart,

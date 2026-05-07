@@ -185,6 +185,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     config,
     messages,
     tools,
+    toolDispatcher,
     signal,
     onToken,
     onHistoryDelta,
@@ -193,6 +194,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     onUsage,
     onMidStreamCompaction,
   } = opts;
+  const dispatch = toolDispatcher ?? runAgentTool;
   const emitHistory = (delta: string): void => {
     if (delta && onHistoryDelta) onHistoryDelta(delta);
   };
@@ -382,7 +384,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
         inputObj = {};
       }
       emit(`\n\n→ ${tc.name}(${tc.argsJson || '{}'})\n`);
-      const result = await runAgentTool(tc.name, inputObj, signal);
+      const result = await dispatch(tc.name, inputObj, signal);
       const resultStr = clampToolResultSize(tc.name, JSON.stringify(result));
 
       // Pre-emptive compaction: if appending this tool result would push the
