@@ -1,5 +1,11 @@
 import { runAgentTool } from '../agentTools';
 import { isAbortError, type StreamChatOptions } from '../streamChat';
+import { clampToolResultSize, estimateResultTokens } from '../toolResultLimits';
+import { LOCAL_GEMMA_CONTEXT_WINDOW } from '../contextWindow';
+import { compactConversation } from '../compactConversation';
+import { COMPACTION_HEADER } from '../autoCompaction';
+import * as tokenUsageStore from '../tokenUsageStore';
+import type { ChatMessage } from '../../types/chat';
 import { DEFAULT_LOCAL_GEMMA_ID } from './models';
 import { resolveActiveLocalModel } from './customModels';
 import { ensureLoaded, generate, sizeInTokens } from './llmService';
@@ -24,7 +30,7 @@ import {
   flushSplitter,
   type SplitterEvent,
 } from './thinkingChannelSplitter';
-import { LOCAL_GEMMA_ENDPOINT } from '../../types/llm';
+import { LOCAL_GEMMA_ENDPOINT, type LLMConfig } from '../../types/llm';
 
 const MAX_TOOL_ITERATIONS = 5;
 const THINKING_OPEN_MARKER = `${CHANNEL_OPEN}thought\n`;
@@ -94,9 +100,99 @@ function extractStreamingCode(
   return { kind: spec.kind, source };
 }
 
+/**
+ * Adapt InternalMessage[] for compactConversation by folding tool-role
+ * entries into the preceding assistant turn so the summariser sees normal
+ * user/assistant alternation.
+ */
+function convToChatMessagesForCompaction(
+  conv: InternalMessage[],
+): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  conv.forEach((m, i) => {
+    if (m.role === 'tool') {
+      const trailer = `\n[← ${m.toolName ?? 'tool'}: ${m.content}]`;
+      const last = out[out.length - 1];
+      if (last && last.role === 'assistant') {
+        out[out.length - 1] = { ...last, content: last.content + trailer };
+      } else {
+        out.push({
+          id: `inline-compact-${i}`,
+          role: 'assistant',
+          content: trailer.trimStart(),
+          createdAt: 0,
+        });
+      }
+      return;
+    }
+    out.push({
+      id: `inline-compact-${i}`,
+      role: m.role,
+      content: m.content,
+      createdAt: 0,
+    });
+  });
+  return out;
+}
+
+interface MidStreamCompactArgs {
+  conv: InternalMessage[];
+  resultStr: string;
+  config: LLMConfig;
+  signal?: AbortSignal;
+}
+
+/**
+ * Returns the summary string and mutates `conv` in place when the projected
+ * size of the next prompt would meet maxTokens; returns null otherwise (and
+ * for empty summaries, so callers don't fire a no-op UI re-render).
+ */
+async function maybeCompactBeforeToolResult(
+  args: MidStreamCompactArgs,
+): Promise<string | null> {
+  const { conv, resultStr, config, signal } = args;
+  const usage = tokenUsageStore.getSnapshot();
+  const currentStep = (usage?.input ?? 0) + (usage?.output ?? 0);
+  if (currentStep + estimateResultTokens(resultStr) < LOCAL_GEMMA_CONTEXT_WINDOW) {
+    return null;
+  }
+  const lastUserIdx = conv.findLastIndex((m) => m.role === 'user');
+  if (lastUserIdx <= 0) return null;
+
+  const older = conv.slice(0, lastUserIdx);
+  const recent = conv.slice(lastUserIdx);
+  let summary: string;
+  try {
+    summary = await compactConversation({
+      config,
+      toCompact: convToChatMessagesForCompaction(older),
+      signal,
+    });
+  } catch (compactErr) {
+    console.warn(
+      '[streamLocalGemma] Inline pre-tool-result compaction failed:',
+      compactErr,
+    );
+    return null;
+  }
+  conv.length = 0;
+  conv.push(...recent);
+  return summary.trim() ? summary : null;
+}
+
 export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
-  const { config, messages, tools, signal, onToken, onHistoryDelta, onDone, onError, onUsage } =
-    opts;
+  const {
+    config,
+    messages,
+    tools,
+    signal,
+    onToken,
+    onHistoryDelta,
+    onDone,
+    onError,
+    onUsage,
+    onMidStreamCompaction,
+  } = opts;
   const emitHistory = (delta: string): void => {
     if (delta && onHistoryDelta) onHistoryDelta(delta);
   };
@@ -131,7 +227,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     onToken(delta);
   };
 
-  const systemPrompt = messages
+  let systemPrompt = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
     .join('\n\n')
@@ -287,7 +383,24 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       }
       emit(`\n\n→ ${tc.name}(${tc.argsJson || '{}'})\n`);
       const result = await runAgentTool(tc.name, inputObj, signal);
-      const resultStr = JSON.stringify(result);
+      const resultStr = clampToolResultSize(tc.name, JSON.stringify(result));
+
+      // Pre-emptive compaction: if appending this tool result would push the
+      // next prompt past maxTokens, summarise older conv entries first.
+      // Otherwise the next generate() throws "Input is too long for the
+      // model to process: current_step + input_size was not less than
+      // maxTokens" and the tool result is lost.
+      const newSummary = await maybeCompactBeforeToolResult({
+        conv,
+        resultStr,
+        config,
+        signal,
+      });
+      if (newSummary) {
+        systemPrompt += COMPACTION_HEADER + newSummary;
+        onMidStreamCompaction?.({ summary: newSummary });
+      }
+
       emit(`← ${resultStr}\n\n`);
       emitHistory(formatToolResponseToken(tc.name, resultStr));
 

@@ -1,5 +1,15 @@
 # Project notes
 
+## Package manager
+
+This project uses **npm**, not pnpm or yarn. The committed lockfile is
+`site/package-lock.json`. Use `npm install` / `npm run <script>` from
+`site/`. Do not introduce a `pnpm-lock.yaml` or `yarn.lock`. The
+pnpm-flavoured comments in `site/astro.config.mjs` (about `.pnpm`
+symlink paths and `@codemirror/state` deduping) are leftover context;
+the `dedupe` config is harmless under npm and still useful as
+documentation, so leave it alone.
+
 ## No SSR
 
 This project does not use SSR. Astro is configured for static output and the
@@ -22,7 +32,7 @@ session.
 
 To load it in Chrome (manual or via chrome-devtools MCP):
 
-1. `cd site && pnpm dev` — Astro picks the next free port; check the
+1. `cd site && npm run dev` — Astro picks the next free port; check the
    "Local" line in stdout for the URL (typically `http://localhost:4321`
    or `:4322`).
 2. Open the page and click the chevron next to **Choose model** in the

@@ -44,7 +44,7 @@ describe('cutout registry', () => {
     const source = readAllComponentSources();
     const required = CUTOUT_IDS.filter((id) => !CUTOUTS[id].optional);
     for (const id of required) {
-      expect(source).toContain(`data-tour-id="${id}"`);
+      expect(isWired(source, id), `cutout "${id}" is not wired in any component`).toBe(true);
     }
   });
 
@@ -53,10 +53,27 @@ describe('cutout registry', () => {
     const optional = CUTOUT_IDS.filter((id) => CUTOUTS[id].optional);
     const status = optional.map((id) => ({
       id,
-      wired: source.includes(`data-tour-id="${id}"`),
+      wired: isWired(source, id),
     }));
     // Soft assertion: the array exists. Failure here would mean the registry
     // changed in an unexpected way.
     expect(Array.isArray(status)).toBe(true);
+  });
+});
+
+/**
+ * A cutout is considered wired if any component sets `data-tour-id="<id>"`
+ * directly, or forwards the id through a `tourId="<id>"` prop (the
+ * MessagesView pattern, where the attribute is rendered via interpolation).
+ */
+function isWired(source: string, id: CutoutId): boolean {
+  return source.includes(`data-tour-id="${id}"`) || source.includes(`tourId="${id}"`);
+}
+
+describe('isWired predicate sanity', () => {
+  it('matches direct attributes and prop-forwarded forms', () => {
+    expect(isWired('<div data-tour-id="chat.modelDropdown" />', 'chat.modelDropdown')).toBe(true);
+    expect(isWired('<X tourId="chat.conversation" />', 'chat.conversation')).toBe(true);
+    expect(isWired('nothing here', 'chat.modelDropdown')).toBe(false);
   });
 });

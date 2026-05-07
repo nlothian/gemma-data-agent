@@ -272,6 +272,13 @@ export interface MessagesViewProps {
   listRef?: React.Ref<HTMLDivElement>;
   /** When provided, rendered as a collapsible full-width "System Prompt" bubble at the top of the list. */
   systemPrompt?: string;
+  /**
+   * Optional tour cutout id applied as `data-tour-id` on the list root. Only the
+   * primary chat conversation should set this — secondary instances (e.g. the
+   * sub-agent transcript) must omit it so spotlight cutouts don't union across
+   * unrelated scrollable lists.
+   */
+  tourId?: string;
 }
 
 export default function MessagesView({
@@ -282,6 +289,7 @@ export default function MessagesView({
   emptyState,
   listRef,
   systemPrompt,
+  tourId,
 }: MessagesViewProps) {
   const hasMessages = messages.length > 0;
   return (
@@ -290,7 +298,7 @@ export default function MessagesView({
       ref={listRef}
       role="log"
       aria-live="polite"
-      data-tour-id="chat.conversation"
+      data-tour-id={tourId}
     >
       {systemPrompt && <CollapsibleSystemPrompt text={systemPrompt} />}
       {!hasMessages && emptyState}

@@ -9,17 +9,32 @@ import {
   initialState,
   reduce,
   runSummarisation,
-  type ExplainerState,
+  findEntry,
+  type ExplainerEntry,
+  type ExplainerHistoryState,
   type SummaryState,
 } from '../lib/explainerStateMachine';
-import { InfoIcon } from './Icons';
+import {
+  InfoIcon,
+  ClearAllIcon,
+  DatabaseIcon,
+  RobotIcon,
+  DataTableIcon,
+  CompressIcon,
+  PythonLogoIcon,
+  ReactLogoIcon,
+} from './Icons';
 import CompactionPreviewOverlay from './CompactionPreviewOverlay';
+
+const SNIPPET_LEN = 14;
 
 export default function ExplainerPanel() {
   const debug = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   const { config } = useLLMConfig();
   const [state, dispatch] = useReducer(reduce, initialState);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  const activeEntry = findEntry(state, state.activeId);
 
   // Translate the debugger snapshot into state-machine events.
   useEffect(() => {
@@ -33,44 +48,45 @@ export default function ExplainerPanel() {
   }, [debug.mode, debug.pending]);
 
   useEffect(() => {
-    if (state.kind !== 'paused-compaction') setPreviewOpen(false);
-  }, [state.kind]);
+    if (activeEntry?.kind !== 'paused-compaction') setPreviewOpen(false);
+  }, [activeEntry?.kind]);
 
-  // Kick off summarisation whenever the python/sql code identity changes.
-  // We deliberately do NOT depend on `state` itself — dispatching
-  // SUMMARY_LOADING from inside the effect would otherwise change the state
-  // reference, run cleanup, abort the in-flight request, and the response
-  // would never be displayed. See comments in summariseCode.ts for why this
-  // request must stay isolated from the agent's chat history.
-  const language =
-    state.kind === 'paused-python'
+  // Kick off summarisation for the active entry's code/sql/prompt. We trigger
+  // off the entry's id so switching tabs (or appending a new tab) re-evaluates,
+  // and we early-out if a summary is already loading/ready/errored — switching
+  // back to an old tab must not re-fetch.
+  const language: 'python' | 'sql' | 'react' | 'subagent' | null =
+    activeEntry?.kind === 'paused-python'
       ? 'python'
-      : state.kind === 'paused-sql'
+      : activeEntry?.kind === 'paused-sql'
         ? 'sql'
-        : state.kind === 'paused-react'
+        : activeEntry?.kind === 'paused-react'
           ? 'react'
-          : state.kind === 'paused-subagent'
+          : activeEntry?.kind === 'paused-subagent'
             ? 'subagent'
             : null;
   const code =
-    state.kind === 'paused-python'
-      ? state.code
-      : state.kind === 'paused-sql'
-        ? state.sql
-        : state.kind === 'paused-react'
-          ? state.code
-          : state.kind === 'paused-subagent'
-            ? state.prompt
+    activeEntry?.kind === 'paused-python'
+      ? activeEntry.code
+      : activeEntry?.kind === 'paused-sql'
+        ? activeEntry.sql
+        : activeEntry?.kind === 'paused-react'
+          ? activeEntry.code
+          : activeEntry?.kind === 'paused-subagent'
+            ? activeEntry.prompt
             : null;
+  const summaryStatus =
+    activeEntry && 'summary' in activeEntry ? activeEntry.summary.status : null;
+  const entryId = activeEntry?.id ?? null;
   const endpoint = config.activeEndpoint;
 
   useEffect(() => {
-    if (language === null || code === null) return;
+    if (language === null || code === null || entryId === null) return;
     if (!endpoint) return;
-    const key = `${language}:${code}`;
+    if (summaryStatus !== 'idle') return;
 
     const ctrl = new AbortController();
-    void runSummarisation({ language, code, key, config, signal: ctrl.signal, dispatch });
+    void runSummarisation({ language, code, entryId, config, signal: ctrl.signal, dispatch });
 
     return () => {
       ctrl.abort();
@@ -78,7 +94,7 @@ export default function ExplainerPanel() {
     // `config` is stable across unrelated setting reads (see useLLMConfig);
     // only `endpoint` is a meaningful invalidation trigger here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, code, endpoint]);
+  }, [language, code, entryId, summaryStatus, endpoint]);
 
   return (
     <>
@@ -90,13 +106,23 @@ export default function ExplainerPanel() {
         <div className="explainer-header">
           <span className="explainer-title">Explainer</span>
         </div>
+        {state.entries.length > 0 && (
+          <ExplainerTabs state={state} dispatch={dispatch} />
+        )}
         <div className="explainer-body">
-          <ExplainerBody state={state} onShowCompaction={() => setPreviewOpen(true)} />
+          {activeEntry ? (
+            <EntryBody
+              entry={activeEntry}
+              onShowCompaction={() => setPreviewOpen(true)}
+            />
+          ) : (
+            <LiveModeBody liveMode={state.liveMode} />
+          )}
         </div>
       </section>
-      {previewOpen && state.kind === 'paused-compaction' && (
+      {previewOpen && activeEntry?.kind === 'paused-compaction' && (
         <CompactionPreviewOverlay
-          messages={state.messages}
+          messages={activeEntry.messages}
           onClose={() => setPreviewOpen(false)}
         />
       )}
@@ -104,56 +130,149 @@ export default function ExplainerPanel() {
   );
 }
 
-function ExplainerBody({
+function ExplainerTabs({
   state,
-  onShowCompaction,
+  dispatch,
 }: {
-  state: ExplainerState;
-  onShowCompaction: () => void;
+  state: ExplainerHistoryState;
+  dispatch: React.Dispatch<{ type: 'SET_ACTIVE'; id: string } | { type: 'CLEAR_ALL' }>;
 }) {
-  if (state.kind === 'empty') return null;
+  return (
+    <div className="explainer-tabs" role="tablist" aria-label="Explanation history">
+      {state.entries.map((entry) => (
+        <ExplainerTab
+          key={entry.id}
+          entry={entry}
+          active={entry.id === state.activeId}
+          onSelect={() => dispatch({ type: 'SET_ACTIVE', id: entry.id })}
+        />
+      ))}
+      <button
+        type="button"
+        className="explainer-tab-clear"
+        aria-label="Clear all explanations"
+        title="Clear all"
+        onClick={() => dispatch({ type: 'CLEAR_ALL' })}
+      >
+        <ClearAllIcon size={16} />
+      </button>
+    </div>
+  );
+}
 
-  if (state.kind === 'running') {
+function ExplainerTab({
+  entry,
+  active,
+  onSelect,
+}: {
+  entry: ExplainerEntry;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const { icon, snippet, fullText } = describeTab(entry);
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      data-active={active}
+      className="explainer-tab"
+      onClick={onSelect}
+      title={fullText}
+    >
+      <span className="explainer-tab-icon">{icon}</span>
+      <span className="explainer-tab-label">{snippet}</span>
+    </button>
+  );
+}
+
+function describeTab(entry: ExplainerEntry): {
+  icon: React.ReactNode;
+  snippet: string;
+  fullText: string;
+} {
+  switch (entry.kind) {
+    case 'paused-python':
+      return { icon: <PythonLogoIcon size={12} />, snippet: truncate(entry.code), fullText: entry.code };
+    case 'paused-react':
+      return { icon: <ReactLogoIcon size={12} />, snippet: truncate(entry.code), fullText: entry.code };
+    case 'paused-sql':
+      return { icon: <DatabaseIcon size={14} />, snippet: truncate(entry.sql), fullText: entry.sql };
+    case 'paused-subagent':
+      return { icon: <RobotIcon size={14} />, snippet: truncate(entry.prompt), fullText: entry.prompt };
+    case 'paused-load': {
+      let label = entry.url;
+      try {
+        label = new URL(entry.url).hostname;
+      } catch {
+        // not a parseable URL — fall back to truncated raw value
+      }
+      return { icon: <DataTableIcon size={14} />, snippet: truncate(label), fullText: entry.url };
+    }
+    case 'paused-compaction': {
+      const label = `${entry.messages.length} msgs`;
+      return { icon: <CompressIcon size={14} />, snippet: label, fullText: label };
+    }
+  }
+}
+
+function truncate(text: string): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= SNIPPET_LEN) return oneLine || '—';
+  return oneLine.slice(0, SNIPPET_LEN) + '…';
+}
+
+function LiveModeBody({ liveMode }: { liveMode: ExplainerHistoryState['liveMode'] }) {
+  if (liveMode === 'running') {
     return <p>Running without interruptions. Press Stop to halt.</p>;
   }
+  return null;
+}
 
-  if (state.kind === 'paused-python') {
+function EntryBody({
+  entry,
+  onShowCompaction,
+}: {
+  entry: ExplainerEntry;
+  onShowCompaction: () => void;
+}) {
+  if (entry.kind === 'paused-python') {
     return (
       <>
         <p>The model wants to run python with the code above. Press the step button to continue.</p>
-        <SummaryView summary={state.summary} />
+        <SummaryView summary={entry.summary} />
       </>
     );
   }
 
-  if (state.kind === 'paused-sql') {
+  if (entry.kind === 'paused-sql') {
     return (
       <>
         <p>The model wants to run SQL with the code above. Press the step button to continue.</p>
-        <SummaryView summary={state.summary} />
+        <SummaryView summary={entry.summary} />
       </>
     );
   }
 
-  if (state.kind === 'paused-react') {
+  if (entry.kind === 'paused-react') {
     return (
       <>
         <p>The model wants to render a React component with the code above. Press the step button to continue.</p>
-        <SummaryView summary={state.summary} />
+        <SummaryView summary={entry.summary} />
       </>
     );
   }
 
-  if (state.kind === 'paused-subagent') {
+  if (entry.kind === 'paused-subagent') {
     return (
       <>
         <p>The main agent wants to create a sub agent. It does this to save context in the main agent thread.</p>
-        <SummaryView summary={state.summary} />
+        <SummaryView summary={entry.summary} />
       </>
     );
   }
 
-  if (state.kind === 'paused-compaction') {
+  if (entry.kind === 'paused-compaction') {
     return (
       <>
         <p>Compaction is required because context is above 90%. Press the Compaction button to run it.</p>
@@ -172,7 +291,7 @@ function ExplainerBody({
   // paused-load
   return (
     <p>
-      The model wants to load data from <SafeUrl url={state.url} />. Press Step to continue.
+      The model wants to load data from <SafeUrl url={entry.url} />. Press Step to continue.
     </p>
   );
 }

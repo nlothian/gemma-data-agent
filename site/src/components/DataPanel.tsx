@@ -1,15 +1,16 @@
+import { ChevronRightIcon, TrashIcon } from './Icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { LoadedTable } from '../lib/duckdb';
-import type { PaneStatus } from '../lib/executionPanelStore';
-import type { SandboxFileEntry } from '../lib/sandboxStore';
-import type { LoadedSandboxFile } from '../lib/sandboxFiles';
 import useSandboxConfig, {
   useLoadedSandboxFiles,
 } from '../hooks/useSandboxConfig';
-import { invalidateAcrossCaches } from '../lib/cacheRegistry';
-import { clearAllInputs } from '../lib/duckdb';
-import { ChevronRightIcon, TrashIcon } from './Icons';
+
+import type { LoadedSandboxFile } from '../lib/sandboxFiles';
+import type { LoadedTable } from '../lib/duckdb';
+import type { PaneStatus } from '../lib/executionPanelStore';
+import type { SandboxFileEntry } from '../lib/sandboxStore';
 import SandboxSettingsSection from './SandboxSettingsSection';
+import { clearAllInputs } from '../lib/duckdb';
+import { invalidateAcrossCaches } from '../lib/cacheRegistry';
 
 interface DataPanelProps {
   tables: LoadedTable[];
@@ -124,7 +125,7 @@ function SandboxSettingsCollapsible() {
         </button>
       </header>
       {expanded && (
-        <div style={{ paddingLeft: '22px', paddingRight: '22px' }}>
+        <div style={{ paddingLeft: '22px', paddingRight: '22px', paddingBottom: '22px' }}>
           <SandboxSettingsSection />
         </div>
       )}

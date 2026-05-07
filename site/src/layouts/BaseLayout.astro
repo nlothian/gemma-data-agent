@@ -3,6 +3,8 @@ import "../styles/lumen.css";
 import HeaderSettings from "../components/HeaderSettings.tsx";
 import ChatSidebar from "../components/ChatSidebar.tsx";
 import TourMenuButton from "../components/TourMenuButton.tsx";
+import SourcecodeMenuButton from "../components/SourcecodeMenuButton.tsx";
+import SourcecodeOverlayHost from "../components/SourcecodeOverlayHost.tsx";
 
 interface Props {
   title?: string;
@@ -41,6 +43,7 @@ const {
         </a>
         <div class="nav-right">
           <div class="nav-links">
+            <SourcecodeMenuButton client:only="react" />
             <TourMenuButton client:only="react" />
             <a href="https://github.com">GitHub</a>
           </div>
@@ -52,5 +55,6 @@ const {
       <slot />
     </main>
     <ChatSidebar client:only="react" />
+    <SourcecodeOverlayHost client:only="react" />
   </body>
 </html>
