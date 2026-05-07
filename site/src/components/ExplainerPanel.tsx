@@ -118,6 +118,8 @@ export default function ExplainerPanel() {
     const controller = new AbortController();
     conversationAbortsRef.current.set(entryId, controller);
 
+    let rawAssistantText = '';
+
     try {
       await streamChat({
         config,
@@ -125,10 +127,18 @@ export default function ExplainerPanel() {
         tools: EXPLAINER_TOOLS,
         toolDispatcher: runExplainerTool,
         signal: controller.signal,
-        onToken: (delta) =>
-          dispatch({ type: 'CONVERSATION_STREAM_TOKEN', entryId, delta }),
+        onToken: (delta) => {
+          rawAssistantText += delta;
+          dispatch({ type: 'CONVERSATION_STREAM_TOKEN', entryId, delta });
+        },
         onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
-        onDone: () => dispatch({ type: 'CONVERSATION_STREAM_DONE', entryId }),
+        onDone: () => {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[ExplainerChat] raw assistant text (entry ${entryId}):\n${rawAssistantText}`,
+          );
+          dispatch({ type: 'CONVERSATION_STREAM_DONE', entryId });
+        },
         onError: (err) =>
           dispatch({
             type: 'CONVERSATION_STREAM_ERROR',

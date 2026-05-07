@@ -1448,14 +1448,12 @@ body.has-chat main.container:has(section.explainer-panel) {
 
 /* Mirror the widened main layout in the nav so the brand aligns with the
    exec/explainer panel's left edge instead of sitting inside the centered
-   1280px container. */
+   1280px container. The right-side menu items remain flush to the viewport
+   edge — they sit above the chat sidebar's header area, so no padding
+   adjustment is needed there. */
 body:has(section.exec-panel) .nav-inner,
 body:has(section.explainer-panel) .nav-inner {
   max-width: none;
-}
-body.has-chat:has(section.exec-panel) .nav-inner,
-body.has-chat:has(section.explainer-panel) .nav-inner {
-  padding-right: calc(var(--chat-w) + var(--chat-gutter) * 2);
 }
 
 .exec-panel {
@@ -2345,6 +2343,23 @@ body.exec-resizing {
   flex-direction: column;
   gap: var(--s-3);
   background: var(--white);
+}
+
+.data-panel[data-sandbox-expanded="true"] {
+  overflow: hidden;
+}
+
+.data-panel[data-sandbox-expanded="true"] > .data-table-card {
+  flex: 0 0 auto;
+}
+
+.data-panel-rest {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
 }
 
 .data-empty {

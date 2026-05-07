@@ -27,7 +27,6 @@ describe('DEFAULT_TOUR', () => {
   it('every stage cutout id is in CUTOUT_IDS', () => {
     const valid = new Set<string>(CUTOUT_IDS);
     for (const stage of DEFAULT_TOUR.stages) {
-      expect(stage.cutouts.length).toBeGreaterThan(0);
       for (const id of stage.cutouts) {
         expect(valid.has(id)).toBe(true);
       }

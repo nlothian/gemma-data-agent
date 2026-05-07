@@ -2,9 +2,16 @@ import type { TourStage } from '../types';
 
 const welcome: TourStage = {
   id: 'welcome',
-  markdown:
-    'Welcome — this short tour will walk you through the chat sidebar, model picker, the agent\'s step-by-step execution gate, and the feature toggles. We\'ll start from a fresh chat.',
-  cutouts: ['chat.messageEntry'],
+  markdown: `# How Agents Work
+
+This app uses Gemma4 to show how agents work. It is a fully functional
+private agent envionment, so you are encouraged to play with it.
+
+Some features include:
+- Tool use: we can run Python (thanks to Pyodide), SQL (DuckDB) and React all inside your browser.
+- 
+`,
+  cutouts: [],
   onEnter: [{ action: 'newChat' }],
   next: 'manual',
 };

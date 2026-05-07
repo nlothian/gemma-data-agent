@@ -27,14 +27,25 @@ export default function DataPanel({
   pendingUrl,
   pendingTable,
 }: DataPanelProps) {
+  const { status: sandboxStatus } = useSandboxConfig();
+  const [sandboxExpanded, setSandboxExpanded] = useState(
+    sandboxStatus === 'unset',
+  );
+  const prevSandboxStatusRef = useRef(sandboxStatus);
+
+  useEffect(() => {
+    if (prevSandboxStatusRef.current !== 'unset' && sandboxStatus === 'unset') {
+      setSandboxExpanded(true);
+    }
+    prevSandboxStatusRef.current = sandboxStatus;
+  }, [sandboxStatus]);
+
   const isPending = status === 'pending' || status === 'running';
   const isCorsError =
     !!errorMessage && /Access-Control-Allow-Origin|CORS/i.test(errorMessage);
 
-  return (
-    <div className="data-panel" data-tour-id="exec.dataPanel" role="tabpanel">
-      <SandboxSettingsCollapsible />
-
+  const rest = (
+    <>
       {isPending && (
         <div className="data-pending">
           <span className="exec-status-dot" data-status={status} aria-hidden />
@@ -94,22 +105,36 @@ export default function DataPanel({
       )}
 
       <SandboxFilesSection />
+    </>
+  );
+
+  return (
+    <div
+      className="data-panel"
+      data-sandbox-expanded={sandboxExpanded ? 'true' : 'false'}
+      data-tour-id="exec.dataPanel"
+      role="tabpanel"
+    >
+      <SandboxSettingsCollapsible
+        expanded={sandboxExpanded}
+        setExpanded={setSandboxExpanded}
+      />
+      {sandboxExpanded ? (
+        <div className="data-panel-rest">{rest}</div>
+      ) : (
+        rest
+      )}
     </div>
   );
 }
 
-function SandboxSettingsCollapsible() {
-  const { status } = useSandboxConfig();
-  const [expanded, setExpanded] = useState(status === 'unset');
-  const prevStatusRef = useRef(status);
-
-  useEffect(() => {
-    if (prevStatusRef.current !== 'unset' && status === 'unset') {
-      setExpanded(true);
-    }
-    prevStatusRef.current = status;
-  }, [status]);
-
+function SandboxSettingsCollapsible({
+  expanded,
+  setExpanded,
+}: {
+  expanded: boolean;
+  setExpanded: (updater: (prev: boolean) => boolean) => void;
+}) {
   return (
     <article className="data-table-card">
       <header className="data-table-head">

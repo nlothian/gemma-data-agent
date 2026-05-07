@@ -27,7 +27,7 @@ export default function HeaderSettings() {
     <>
       <button
         type="button"
-        style={buttonStyle}
+        style={{ ...buttonStyle, display: 'none' }}
         onClick={() => setOpen(true)}
         onMouseEnter={(e) => {
           e.currentTarget.style.color = 'var(--aqua-600)';

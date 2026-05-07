@@ -151,15 +151,15 @@ export default function TourOverlay(): JSX.Element | null {
       const u = unionOf(rects);
       const vw = window.innerWidth;
       const vh = window.innerHeight;
+      const cardH = cardRef.current?.offsetHeight ?? 200;
       if (!u) {
         setPos({
           left: clamp(vw / 2 - CARD_WIDTH / 2, 8, vw - CARD_WIDTH - 8),
-          top: vh - 220,
+          top: clamp((vh - cardH) / 2, 8, vh - cardH - 8),
           side: 'centred-bottom',
         });
         return;
       }
-      const cardH = cardRef.current?.offsetHeight ?? 200;
       setPos(chooseSide(u, cardH, vw, vh));
     },
     [],
@@ -199,20 +199,9 @@ export default function TourOverlay(): JSX.Element | null {
     transition: 'opacity 180ms ease',
   };
 
-  const buttonStyle: React.CSSProperties = {
-    marginTop: 12,
-    padding: '8px 14px',
-    fontFamily: 'var(--font-sans)',
-    fontSize: 13,
-    fontWeight: 500,
-    color: advanceDisabled ? 'var(--steel)' : 'var(--gel-white)',
-    background: advanceDisabled ? 'var(--mist)' : 'var(--aqua-500)',
-    border: '1px solid',
-    borderColor: advanceDisabled ? 'var(--mist)' : 'var(--aqua-500)',
-    borderRadius: 'var(--r-8, 8px)',
-    cursor: advanceDisabled ? 'not-allowed' : 'pointer',
-    transition: 'background 150ms ease, color 150ms ease, border-color 150ms ease',
-  };
+  const buttonStyle: React.CSSProperties = advanceDisabled
+    ? { visibility: 'hidden' }
+    : {};
 
   return (
     <SpotlightOverlay
@@ -226,9 +215,10 @@ export default function TourOverlay(): JSX.Element | null {
         <div style={contentStyle}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{stage.markdown}</ReactMarkdown>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
           <button
             type="button"
+            className="btn btn-primary"
             disabled={advanceDisabled}
             onClick={() => {
               if (!advanceDisabled) next();

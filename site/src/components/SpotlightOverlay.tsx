@@ -309,23 +309,9 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
     position: 'fixed',
     top: 16,
     right: 16,
-    fontFamily: 'var(--font-sans)',
-    fontWeight: 500,
-    fontSize: '13px',
-    letterSpacing: '-0.005em',
-    color: 'var(--graphite)',
-    background: 'var(--gel-white)',
-    border: '1px solid var(--mist)',
-    padding: '8px 12px',
-    borderRadius: 'var(--r-8)',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    transition: `border-color 150ms ease, color 150ms ease, opacity ${fadeMs}ms ${phase === 'leaving' ? 'ease-in' : 'ease-out'}`,
-    boxShadow: 'var(--el-1), var(--inner-gloss)',
     pointerEvents: 'auto',
     opacity,
+    transition: `opacity ${fadeMs}ms ${phase === 'leaving' ? 'ease-in' : 'ease-out'}, transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease`,
     zIndex: zIndex + 2,
   };
 
@@ -387,16 +373,9 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
       {showCloseButton && onDismiss ? (
         <button
           type="button"
+          className="btn btn-secondary"
           style={closeBtnStyle}
           onClick={handleClose}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--silver)';
-            e.currentTarget.style.color = 'var(--ink)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--mist)';
-            e.currentTarget.style.color = 'var(--graphite)';
-          }}
           aria-label="Dismiss"
         >
           <CloseIcon size={14} />
