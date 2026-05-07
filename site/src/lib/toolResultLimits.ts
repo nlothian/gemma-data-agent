@@ -6,8 +6,6 @@
 export const TOOL_RESULT_MAX_CHARS = 10_000;
 
 export const SIZE_CAPPED_TOOLS: ReadonlySet<string> = new Set([
-  'GrepCodebase',
-  'ReadLines',
   'RunPython',
   'RunReact',
   'RunSQL',

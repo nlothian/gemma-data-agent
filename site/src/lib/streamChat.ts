@@ -14,23 +14,10 @@ export interface TokenUsageReport {
   output: number;
 }
 
-export type ToolDispatcher = (
-  name: string,
-  input: unknown,
-  signal?: AbortSignal,
-) => Promise<unknown>;
-
 export interface StreamChatOptions {
   config: LLMConfig;
   messages: StreamChatMessage[];
   tools?: AgentToolSpec[];
-  /**
-   * Optional override for tool-call dispatch. Defaults to `runAgentTool` (the
-   * main agent's gated tool registry). The Explainer Conversation passes its
-   * own non-gated dispatcher so its read-only research tools (GrepCodebase,
-   * ReadLines, HighlightSourcecode) don't suspend on the Step/Play gate.
-   */
-  toolDispatcher?: ToolDispatcher;
   signal?: AbortSignal;
   onToken: (delta: string) => void;
   /**
@@ -81,8 +68,7 @@ type StreamEvent =
   | { type: 'usage'; input?: number; output?: number };
 
 export async function streamChat(opts: StreamChatOptions): Promise<void> {
-  const { config, messages, tools, toolDispatcher, signal, onToken, onDone, onError, onUsage } = opts;
-  const dispatch: ToolDispatcher = toolDispatcher ?? runAgentTool;
+  const { config, messages, tools, signal, onToken, onDone, onError, onUsage } = opts;
 
   let endpoint: string;
   try {
@@ -175,7 +161,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
         }
         const input = safeParseJson(tu.inputJson);
         emit(`\n\n→ ${tu.name}(${tu.inputJson || '{}'})\n`);
-        const result = await dispatch(tu.name, input, signal);
+        const result = await runAgentTool(tu.name, input, signal);
         const resultStr = clampToolResultSize(tu.name, JSON.stringify(result));
         emit(`← ${resultStr}\n\n`);
         resultBlocks.push({ type: 'tool_result', toolUseId: tu.id, content: resultStr });

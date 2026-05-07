@@ -9,14 +9,19 @@ import {
   subscribeSyncStatus,
 } from '../lib/sourcecode/syncStore';
 import type { SyncStatus } from '../lib/sourcecode/types';
-import * as openFileStore from '../lib/sourcecode/openFileStore';
-import type { OpenFileTarget } from '../lib/sourcecode/openFileStore';
 
 const SourcecodeFileViewer = lazy(() => import('./SourcecodeFileViewer'));
 
 interface SourcecodeOverlayProps {
   open: boolean;
   onClose: () => void;
+}
+
+export interface OpenFileTarget {
+  path: string;
+  line: number;
+  matchStart: number;
+  matchEnd: number;
 }
 
 const styles = {
@@ -131,11 +136,7 @@ function syncLabel(status: SyncStatus): string | null {
 
 export default function SourcecodeOverlay({ open, onClose }: SourcecodeOverlayProps): JSX.Element | null {
   const [mounted, setMounted] = useState<boolean>(false);
-  const openFile = useSyncExternalStore(
-    openFileStore.subscribe,
-    openFileStore.getSnapshot,
-    openFileStore.getServerSnapshot,
-  );
+  const [openFile, setOpenFile] = useState<OpenFileTarget | null>(null);
   const syncStatus = useSyncExternalStore(subscribeSyncStatus, getSyncStatus, getSyncStatus);
 
   useEffect(() => {
@@ -147,12 +148,6 @@ export default function SourcecodeOverlay({ open, onClose }: SourcecodeOverlayPr
     void ensureSourcecodeReady().catch(() => {
       // sync errors are surfaced via the syncStatus banner; swallow rejection
     });
-  }, [open]);
-
-  // When the overlay closes, drop the open-file target so the next open
-  // lands on the search view (mirrors pre-store local-useState behaviour).
-  useEffect(() => {
-    if (!open) openFileStore.clearOpenFile();
   }, [open]);
 
   useEffect(() => {
@@ -207,12 +202,12 @@ export default function SourcecodeOverlay({ open, onClose }: SourcecodeOverlayPr
         {banner ? <div style={styles.syncBanner}>{banner}</div> : null}
         {openFile ? (
           <Suspense fallback={<div style={styles.syncBanner}>Loading viewer…</div>}>
-            <SourcecodeFileViewer file={openFile} onBack={openFileStore.clearOpenFile} />
+            <SourcecodeFileViewer file={openFile} onBack={() => setOpenFile(null)} />
           </Suspense>
         ) : (
           <>
-            <SourcecodeSearchPane onOpenFile={openFileStore.setOpenFile} />
-            <SourcecodeResultsList onOpenFile={openFileStore.setOpenFile} />
+            <SourcecodeSearchPane onOpenFile={setOpenFile} />
+            <SourcecodeResultsList onOpenFile={setOpenFile} />
           </>
         )}
       </aside>

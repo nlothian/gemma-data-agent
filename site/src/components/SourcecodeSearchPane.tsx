@@ -6,7 +6,7 @@ import {
   subscribeSearch,
 } from '../lib/sourcecode/searchPool';
 import { getSyncStatus, subscribeSyncStatus } from '../lib/sourcecode/syncStore';
-import type { OpenFileTarget } from '../lib/sourcecode/openFileStore';
+import type { OpenFileTarget } from './SourcecodeOverlay';
 
 interface SourcecodeSearchPaneProps {
   // Kept for seam parity with SourcecodeResultsList; unused in this pane.

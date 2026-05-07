@@ -21,11 +21,7 @@ const INCLUDE_PATTERNS = [
   'site/tsconfig.json',
   'CLAUDE.md',
   '*.md',
-  // WHY: docs/** previously globbed without an extension filter, which
-  // pulled binary screenshots (e.g. PNG) into the OPFS sourcecode mirror.
-  // Binary content blows up ReadLines output and amplifies regex DoS surface
-  // in the search worker. Restrict to text-only docs (no SVGs in repo).
-  'docs/**/*.{md,mdx,txt,html}',
+  'docs/**',
 ];
 
 const EXCLUDE_PATTERNS = [
@@ -38,10 +34,6 @@ const EXCLUDE_PATTERNS = [
 ];
 
 const MAX_ZIP_BYTES = 5 * 1024 * 1024;
-// WHY: per-file cap protects the OPFS mirror from huge JSON fixtures or
-// stray text blobs. ReadLines / search worker assume reasonable file sizes;
-// a multi-megabyte file would blow past LLM context windows and stall regex.
-const MAX_FILE_BYTES = 256 * 1024;
 
 let promise = null;
 
@@ -96,21 +88,11 @@ async function writeArtifacts() {
     dot: false,
   });
 
-  const candidatePaths = [...new Set(files)].sort();
+  const sortedPaths = [...new Set(files)].sort();
   const input = {};
-  const sortedPaths = [];
-  for (const rel of candidatePaths) {
+  for (const rel of sortedPaths) {
     const abs = path.join(repoRoot, rel);
-    // WHY: stat first so we can skip oversized files without buffering them.
-    const st = fs.statSync(abs);
-    if (st.size > MAX_FILE_BYTES) {
-      console.warn(
-        `[sourcecode] skipping ${rel}: ${st.size} bytes exceeds ${MAX_FILE_BYTES} byte cap`,
-      );
-      continue;
-    }
     input[rel] = fs.readFileSync(abs);
-    sortedPaths.push(rel);
   }
 
   const zipped = zipSync(input, { level: 6 });
