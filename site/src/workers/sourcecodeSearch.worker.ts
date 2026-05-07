@@ -125,16 +125,33 @@ async function runSearch(request: {
     }
 
     const start = performance.now();
+    const deadline = start + 250;
     const lines = text.split(/\r?\n/);
+    // WHY: lines longer than this are almost always minified/binary-ish blobs
+    // that turn pathological regexes (e.g. `(a+)+$`) into multi-second hangs.
+    // Skip them and treat the whole file as timed-out so the UI flags it.
+    const MAX_LINE_LEN = 4096;
+    // WHY: regex.exec runs synchronously without preemption, so we must
+    // re-check the deadline every few iterations of the inner loop. A
+    // catastrophic-backtrack pattern can otherwise wedge the worker for
+    // seconds inside a single exec() call between line-level checks.
+    const MATCH_CHECK_EVERY = 64;
     let timedOut = false;
-    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-      if (performance.now() - start > 250) {
+    outer: for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      if (performance.now() > deadline) {
         timedOut = true;
         break;
       }
       const lineText = lines[lineIdx];
+      // WHY: cap line length before regex executes — preempts ReDoS on huge
+      // single-line payloads (minified bundles, accidental binaries).
+      if (lineText.length > MAX_LINE_LEN) {
+        timedOut = true;
+        break;
+      }
       re.lastIndex = 0;
       let m: RegExpExecArray | null;
+      let matchCount = 0;
       while ((m = re.exec(lineText)) !== null) {
         batch.push({
           path,
@@ -147,9 +164,18 @@ async function runSearch(request: {
         });
         if (m[0].length === 0) re.lastIndex++;
         if (!re.global) break;
+        matchCount++;
+        // WHY: per-match deadline check so a runaway exec()-loop on one line
+        // can't burn through the whole 250ms budget invisibly.
+        if (matchCount % MATCH_CHECK_EVERY === 0 && performance.now() > deadline) {
+          timedOut = true;
+          break outer;
+        }
       }
     }
     if (timedOut) {
+      // WHY: reuse the existing `timeout` signal so the UI flags this file as
+      // skipped (covers both true 250ms timeouts and oversized-line skips).
       postOut({ type: 'timeout', id: request.id, path });
     }
 

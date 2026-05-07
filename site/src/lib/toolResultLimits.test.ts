@@ -24,7 +24,7 @@ describe('clampToolResultSize', () => {
     expect(parsed).toEqual({ error: TOOL_RESULT_TOO_LARGE_MESSAGE });
   });
 
-  it.each(['RunSQL', 'RunReact', 'RunSubAgent'])(
+  it.each(['RunSQL', 'RunReact', 'RunSubAgent', 'ReadLines', 'GrepCodebase'])(
     'caps %s the same way',
     (tool) => {
       const big = 'b'.repeat(TOOL_RESULT_MAX_CHARS + 100);
@@ -32,6 +32,17 @@ describe('clampToolResultSize', () => {
       expect(JSON.parse(out)).toEqual({ error: TOOL_RESULT_TOO_LARGE_MESSAGE });
     },
   );
+
+  it('clamps a ~200KB ReadLines payload to the error envelope', () => {
+    const big = 'r'.repeat(200_000);
+    const out = clampToolResultSize('ReadLines', big);
+    expect(JSON.parse(out)).toEqual({ error: TOOL_RESULT_TOO_LARGE_MESSAGE });
+  });
+
+  it('passes a small GrepCodebase payload through untouched', () => {
+    const small = JSON.stringify({ results: [{ path: 'a.ts', line: 1, lineText: 'x' }], count: 1 });
+    expect(clampToolResultSize('GrepCodebase', small)).toBe(small);
+  });
 
   it('does NOT cap non-listed tools (e.g. ListInputs, LoadData)', () => {
     const big = 'c'.repeat(TOOL_RESULT_MAX_CHARS + 1);
