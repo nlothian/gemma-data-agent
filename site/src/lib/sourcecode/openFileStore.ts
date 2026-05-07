@@ -30,15 +30,15 @@ export type OpenFileTarget = OpenFileMatch | OpenFileRange;
 let target: OpenFileTarget | null = null;
 const listeners = new Set<() => void>();
 
-export function getOpenFile(): OpenFileTarget | null {
+export function getSnapshot(): OpenFileTarget | null {
   return target;
 }
 
-export function getServerOpenFile(): OpenFileTarget | null {
+export function getServerSnapshot(): OpenFileTarget | null {
   return null;
 }
 
-export function subscribeOpenFile(listener: () => void): () => void {
+export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

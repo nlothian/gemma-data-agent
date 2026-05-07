@@ -54,6 +54,7 @@ export const DatabaseIcon = (p: IconProps) => <MaterialIcon name="database" {...
 export const RobotIcon = (p: IconProps) => <MaterialIcon name="smart_toy" {...p} />;
 export const DataTableIcon = (p: IconProps) => <MaterialIcon name="table_chart" {...p} />;
 export const LiveHelpIcon = (p: IconProps) => <MaterialIcon name="live_help" {...p} />;
+export const ChatInfoIcon = (p: IconProps) => <MaterialIcon name="chat_info" {...p} />;
 export const CollapseContentIcon = (p: IconProps) => <MaterialIcon name="collapse_content" {...p} />;
 export const ExpandContentIcon = (p: IconProps) => <MaterialIcon name="expand_content" {...p} />;
 

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { getSearchSnapshot, subscribeSearch } from '../lib/sourcecode/searchPool';
 import type { SearchResult } from '../lib/sourcecode/types';
-import type { OpenFileTarget } from './SourcecodeOverlay';
+import type { OpenFileTarget } from '../lib/sourcecode/openFileStore';
 
 interface SourcecodeResultsListProps {
   onOpenFile: (target: OpenFileTarget) => void;

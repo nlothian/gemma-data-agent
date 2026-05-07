@@ -1446,6 +1446,18 @@ body.has-chat main.container:has(section.explainer-panel) {
   padding-right: calc(var(--chat-w) + var(--chat-gutter) * 2);
 }
 
+/* Mirror the widened main layout in the nav so the brand aligns with the
+   exec/explainer panel's left edge instead of sitting inside the centered
+   1280px container. */
+body:has(section.exec-panel) .nav-inner,
+body:has(section.explainer-panel) .nav-inner {
+  max-width: none;
+}
+body.has-chat:has(section.exec-panel) .nav-inner,
+body.has-chat:has(section.explainer-panel) .nav-inner {
+  padding-right: calc(var(--chat-w) + var(--chat-gutter) * 2);
+}
+
 .exec-panel {
   display: flex;
   flex-direction: column;
@@ -1753,6 +1765,12 @@ body.exec-resizing {
   background: var(--snow);
   border-bottom: 1px solid var(--mist);
   flex-shrink: 0;
+}
+
+.explainer-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
 }
 
 .explainer-title {

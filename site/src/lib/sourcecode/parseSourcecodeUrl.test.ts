@@ -58,4 +58,26 @@ describe('parseSourcecodeUrl', () => {
   it('rejects startLine < 1', () => {
     expect(parseSourcecodeUrl('@sourcecode:/foo.ts:0')).toEqual({ path: 'foo.ts' });
   });
+
+  it('rejects javascript: scheme-pivot attempts', () => {
+    expect(parseSourcecodeUrl('@sourcecode:javascript:alert(1)')).toBeNull();
+  });
+
+  it('rejects path traversal via ..', () => {
+    expect(parseSourcecodeUrl('@sourcecode:/foo/../etc/passwd:1')).toBeNull();
+  });
+
+  it('rejects any scheme-like prefix (e.g. data:)', () => {
+    expect(parseSourcecodeUrl('@sourcecode:/data:text/html,foo')).toBeNull();
+  });
+
+  it('still parses a normal path with hyphens, underscores and dots', () => {
+    expect(
+      parseSourcecodeUrl('@sourcecode:/site/src/lib/some_file-name.test.ts:10-20'),
+    ).toEqual({
+      path: 'site/src/lib/some_file-name.test.ts',
+      startLine: 10,
+      endLine: 20,
+    });
+  });
 });

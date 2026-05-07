@@ -13,7 +13,7 @@ import { css } from '@codemirror/lang-css';
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
-import type { OpenFileTarget } from './SourcecodeOverlay';
+import type { OpenFileTarget } from '../lib/sourcecode/openFileStore';
 import { readSourceFile } from '../lib/sourcecode/readSource';
 
 interface SourcecodeFileViewerProps {

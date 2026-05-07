@@ -58,10 +58,10 @@ export const EXPLAINER_TOOLS: AgentToolSpec[] = [
           type: 'string',
           description: "Path inside the project, e.g. 'site/src/lib/streamChat.ts' (no leading slash).",
         },
-        startLine: { type: 'number', description: '1-based first line (inclusive).' },
-        endLine: { type: 'number', description: '1-based last line (inclusive).' },
+        start_line: { type: 'number', description: '1-based first line (inclusive).' },
+        end_line: { type: 'number', description: '1-based last line (inclusive).' },
       },
-      required: ['path', 'startLine', 'endLine'],
+      required: ['path', 'start_line', 'end_line'],
     },
   },
   {
@@ -81,13 +81,13 @@ export const EXPLAINER_TOOLS: AgentToolSpec[] = [
           type: 'string',
           description: "Path inside the project, e.g. 'site/src/lib/streamChat.ts'.",
         },
-        startLine: { type: 'number', description: '1-based first line.' },
-        endLine: {
+        start_line: { type: 'number', description: '1-based first line.' },
+        end_line: {
           type: 'number',
-          description: '1-based last line (defaults to startLine for a single-line highlight).',
+          description: '1-based last line (defaults to start_line for a single-line highlight).',
         },
       },
-      required: ['path', 'startLine'],
+      required: ['path', 'start_line'],
     },
   },
 ];
@@ -128,14 +128,14 @@ export async function runExplainerTool(
 
   if (name === 'ReadLines') {
     const path = asString(obj.path);
-    const startLine = asInt(obj.startLine);
-    const endLineRaw = asInt(obj.endLine);
+    const startLine = asInt(obj.start_line);
+    const endLineRaw = asInt(obj.end_line);
     if (!path) return { error: 'ReadLines requires a `path` string.' } satisfies ToolError;
     if (startLine == null || startLine < 1) {
-      return { error: 'ReadLines requires `startLine` >= 1.' } satisfies ToolError;
+      return { error: 'ReadLines requires `start_line` >= 1.' } satisfies ToolError;
     }
     if (endLineRaw == null || endLineRaw < startLine) {
-      return { error: 'ReadLines requires `endLine` >= startLine.' } satisfies ToolError;
+      return { error: 'ReadLines requires `end_line` >= start_line.' } satisfies ToolError;
     }
     let truncated = false;
     let endLine = endLineRaw;
@@ -167,13 +167,14 @@ export async function runExplainerTool(
 
   if (name === 'HighlightSourcecode') {
     const path = asString(obj.path);
-    const startLine = asInt(obj.startLine);
-    const endLineRaw = asInt(obj.endLine);
+    const startLine = asInt(obj.start_line);
+    const endLineRaw = asInt(obj.end_line);
     if (!path) return { error: 'HighlightSourcecode requires a `path` string.' } satisfies ToolError;
     if (startLine == null || startLine < 1) {
-      return { error: 'HighlightSourcecode requires `startLine` >= 1.' } satisfies ToolError;
+      return { error: 'HighlightSourcecode requires `start_line` >= 1.' } satisfies ToolError;
     }
     const endLine = endLineRaw == null ? startLine : Math.max(startLine, endLineRaw);
+    if (signal?.aborted) return { error: 'aborted' } satisfies ToolError;
     showSourcecodeRange({ path, startLine, endLine });
     return { ok: true, path, startLine, endLine };
   }
