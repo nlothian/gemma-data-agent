@@ -23,11 +23,17 @@ import {
   RobotIcon,
   DataTableIcon,
   CompressIcon,
+  CollapseContentIcon,
   PythonLogoIcon,
   ReactLogoIcon,
   LiveHelpIcon,
   PlayIcon,
 } from './Icons';
+import {
+  setExplainerCollapsed,
+  usePaneCollapse,
+  useRestoreFocusOnMount,
+} from '../lib/paneCollapseStore';
 import CompactionPreviewOverlay from './CompactionPreviewOverlay';
 import MessagesView from './MessagesView';
 import { streamChat, type StreamChatMessage } from '../lib/streamChat';
@@ -194,15 +200,34 @@ export default function ExplainerPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, code, entryId, summaryStatus, endpoint]);
 
+  const collapse = usePaneCollapse();
+  const collapseBtnRef = useRef<HTMLButtonElement>(null);
+  useRestoreFocusOnMount('explainer-collapse-btn', collapseBtnRef, !collapse.explainer);
+
+  if (collapse.explainer) return null;
+
   return (
     <>
       <section
+        id="explainer-panel"
         className="explainer-panel"
         data-tour-id="exec.explainerPanel"
         aria-label="Explainer"
       >
         <div className="explainer-header">
           <span className="explainer-title">Explainer</span>
+          <button
+            ref={collapseBtnRef}
+            type="button"
+            className="pane-collapse-btn pane-collapse-btn--explainer"
+            aria-label="Collapse Explainer pane"
+            aria-expanded={true}
+            aria-controls="explainer-panel"
+            title="Collapse Explainer"
+            onClick={() => setExplainerCollapsed(true)}
+          >
+            <CollapseContentIcon size={16} />
+          </button>
         </div>
         <ExplainerTabs
           state={state}
