@@ -21,10 +21,11 @@ import ReactPanel from './ReactPanel';
 import SqlResultGrid from './SqlResultGrid';
 import SubAgentsPane from './SubAgentsPane';
 import * as subAgentStore from '../lib/subAgents/store';
-import { ChevronDownIcon, CollapseContentIcon, PlayIcon } from './Icons';
+import { ChevronDownIcon, CollapseContentIcon, ExpandContentIcon, PlayIcon } from './Icons';
 import { registerExecBridge } from '../lib/tour/bridge';
 import {
   setExecCollapsed,
+  setExplainerCollapsed,
   usePaneCollapse,
   useRestoreFocusOnMount,
 } from '../lib/paneCollapseStore';
@@ -293,6 +294,17 @@ export default function ExecutionPanel() {
         >
           <CollapseContentIcon size={16} />
         </button>
+        {!collapse.explainer && (
+          <button
+            type="button"
+            className="pane-collapse-btn pane-collapse-btn--exec-expand"
+            aria-label="Maximize Agents pane"
+            title="Maximize Agents"
+            onClick={() => setExplainerCollapsed(true)}
+          >
+            <ExpandContentIcon size={16} />
+          </button>
+        )}
       </div>
       <div className="exec-body">
         {active === 'subagents' ? (
