@@ -13,13 +13,16 @@ export type CutoutId =
   | 'chat.playButton'
   | 'chat.conversation'
   | 'chat.compactionRunButton'
+  | 'chat.throbber'
   | 'exec.panel'
   | 'exec.featureSelector'
   | 'exec.explainerPanel'
   | 'exec.codeEditor'
   | 'exec.runButton'
   | 'exec.pythonOutput'
-  | 'exec.dataPanel';
+  | 'exec.dataPanel'
+  | 'exec.explainerMessages'
+  | 'sourcecode.viewer';
 
 export interface CutoutDef {
   id: CutoutId;
@@ -42,6 +45,7 @@ export const CUTOUTS: Record<CutoutId, CutoutDef> = {
   'chat.modelDropdown': {
     id: 'chat.modelDropdown',
     selector: dt('chat.modelDropdown'),
+    extraSelectors: ['[data-tour-id="chat.modelPopover"]'],
     label: 'Model selection dropdown trigger',
   },
   'chat.messageEntry': {
@@ -69,6 +73,12 @@ export const CUTOUTS: Record<CutoutId, CutoutDef> = {
     id: 'chat.compactionRunButton',
     selector: dt('chat.compactionRunButton'),
     label: 'Compact / Run compaction button',
+    optional: true,
+  },
+  'chat.throbber': {
+    id: 'chat.throbber',
+    selector: dt('chat.throbber'),
+    label: 'Activity throbber ("Thinking", "Running Python", …)',
     optional: true,
   },
   'exec.panel': {
@@ -110,6 +120,18 @@ export const CUTOUTS: Record<CutoutId, CutoutDef> = {
     id: 'exec.dataPanel',
     selector: dt('exec.dataPanel'),
     label: 'Data panel',
+    optional: true,
+  },
+  'exec.explainerMessages': {
+    id: 'exec.explainerMessages',
+    selector: dt('exec.explainerMessages'),
+    label: 'Explainer conversation message list',
+    optional: true,
+  },
+  'sourcecode.viewer': {
+    id: 'sourcecode.viewer',
+    selector: dt('sourcecode.viewer'),
+    label: 'Sourcecode overlay panel',
     optional: true,
   },
 };

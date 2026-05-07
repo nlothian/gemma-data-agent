@@ -5,7 +5,11 @@ import {
   performAction,
   type ActionName,
 } from '../actions';
-import { registerChatBridge, registerExecBridge } from '../bridge';
+import {
+  registerChatBridge,
+  registerExecBridge,
+  registerExplainerBridge,
+} from '../bridge';
 import * as agentFeatures from '../../agentFeaturesStore';
 
 type AssertEqual<A, B> =
@@ -33,6 +37,13 @@ describe('ACTION_NAMES', () => {
         'waitForLlmIdle',
         'waitForPythonIdle',
         'newChat',
+        'pressExplainerExpand',
+        'pressAgentsExpand',
+        'typeExplainerMessage',
+        'sendExplainerMessage',
+        'waitForExplainerIdle',
+        'clickFirstSourcecodeLink',
+        'closeSourcecode',
       ].sort(),
     );
   });
@@ -159,6 +170,57 @@ describe('performAction', () => {
     expect(spy).toHaveBeenCalledWith('runSql', false);
     expect(spy).toHaveBeenCalledWith('runPython', true);
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('explainer bridge actions', () => {
+  let bridge: {
+    setConversationInput: ReturnType<typeof vi.fn>;
+    sendActiveConversation: ReturnType<typeof vi.fn>;
+    subscribeStreaming: ReturnType<typeof vi.fn>;
+    isStreamingActive: ReturnType<typeof vi.fn>;
+  };
+  let unregister: () => void;
+
+  beforeEach(() => {
+    bridge = {
+      setConversationInput: vi.fn(),
+      sendActiveConversation: vi.fn(),
+      subscribeStreaming: vi.fn(() => () => {}),
+      isStreamingActive: vi.fn(() => false),
+    };
+    unregister = registerExplainerBridge(bridge);
+  });
+
+  afterEach(() => {
+    unregister();
+  });
+
+  it('typeExplainerMessage forwards text to setConversationInput', async () => {
+    await performAction('typeExplainerMessage', { text: 'hello' });
+    expect(bridge.setConversationInput).toHaveBeenCalledWith('hello');
+  });
+
+  it('sendExplainerMessage forwards to sendActiveConversation', async () => {
+    await performAction('sendExplainerMessage', {});
+    expect(bridge.sendActiveConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('clickFirstSourcecodeLink clicks scoped first link or warns', async () => {
+    const click = vi.fn();
+    const querySelector = vi.fn(() => ({ click }) as unknown as Element);
+    vi.stubGlobal('document', { querySelector });
+    await performAction('clickFirstSourcecodeLink', {});
+    expect(querySelector).toHaveBeenCalledWith(
+      '[data-tour-id="exec.explainerPanel"] .chat-sourcecode-link',
+    );
+    expect(click).toHaveBeenCalledTimes(1);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('document', { querySelector: vi.fn(() => null) });
+    await performAction('clickFirstSourcecodeLink', {});
+    expect(warn).toHaveBeenCalledWith('tour: no sourcecode link to click');
+    warn.mockRestore();
   });
 });
 

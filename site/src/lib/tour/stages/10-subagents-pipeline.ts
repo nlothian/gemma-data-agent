@@ -14,7 +14,7 @@ const subAgentsPipeline: TourStage = {
   id: 'subagents-pipeline',
   markdown:
     "Now we'll run a two-stage pipeline through **sub-agents**: one loads a CSV, the other trains a linear regression on the `Sex` feature. Watch the SubAgents tab — each task runs in its own isolated LLM context, and only the final text returns to the main thread.",
-  cutouts: ['chat.conversation', 'exec.panel'],
+  cutouts: ['chat.conversation', 'chat.throbber', 'exec.panel'],
   onEnter: [
     { action: 'newChat' },
     {

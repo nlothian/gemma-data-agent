@@ -8,7 +8,13 @@
 
 import type { TourDefinition, TourSnapshot, TourStage, TourStageStatus } from './types';
 import { performAction } from './actions';
-import { popForceExpand, pushForceExpand } from '../paneCollapseStore';
+import {
+  popForceExpand,
+  pushForceExpand,
+  setExecCollapsed,
+  setExplainerCollapsed,
+} from '../paneCollapseStore';
+import { closeSourcecode } from '../sourcecode/uiStore';
 
 const INITIAL: TourSnapshot = {
   running: false,
@@ -114,7 +120,25 @@ export function startTour(def: TourDefinition): void {
   enterStage(0);
 }
 
-export function next(): void {
+async function runExitThenAdvance(stage: TourStage, gen: number): Promise<void> {
+  setStatus('running-actions');
+  for (const step of stage.onExit ?? []) {
+    if (gen !== actionGen) return;
+    if (step.delayMs && step.delayMs > 0) {
+      await new Promise((r) => setTimeout(r, step.delayMs));
+      if (gen !== actionGen) return;
+    }
+    try {
+      await performAction(step.action, step.params ?? ({} as never));
+    } catch (err) {
+      console.warn('tour: onExit action failed', step.action, err);
+    }
+  }
+  if (gen !== actionGen) return;
+  advance();
+}
+
+function advance(): void {
   if (!activeDef) return;
   const nextIndex = snapshot.stageIndex + 1;
   if (nextIndex >= activeDef.stages.length) {
@@ -124,7 +148,25 @@ export function next(): void {
   enterStage(nextIndex);
 }
 
+export function next(): void {
+  if (!activeDef) return;
+  const stage = activeDef.stages[snapshot.stageIndex];
+  if (stage?.onExit && stage.onExit.length > 0) {
+    const gen = ++actionGen;
+    void runExitThenAdvance(stage, gen);
+    return;
+  }
+  advance();
+}
+
 export function end(): void {
+  // Stages 11/12 may have collapsed one pane to maximize the other; restore
+  // both to expanded so the user lands back in the default two-column view
+  // regardless of where in the tour End Tour was pressed. Also drop any
+  // sourcecode overlay that 12 left open.
+  setExecCollapsed(false);
+  setExplainerCollapsed(false);
+  closeSourcecode();
   popForceExpand('tour');
   activeDef = null;
   actionGen++;

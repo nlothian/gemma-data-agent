@@ -23,10 +23,12 @@ const pythonPlot: TourStage = {
   onEnter: [
     { action: 'toggleFeatureSelector', params: { open: false } },
     { action: 'setPythonCode', params: { code: PLOT_CODE }, delayMs: 300 },
-    { action: 'pressRunButton', delayMs: 600 },
+  ],
+  onExit: [
+    { action: 'pressRunButton' },
     { action: 'waitForPythonIdle', params: {} },
   ],
-  next: 'auto-after-actions',
+  next: 'manual',
 };
 
 export default pythonPlot;

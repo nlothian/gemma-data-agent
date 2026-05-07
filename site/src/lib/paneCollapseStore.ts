@@ -47,14 +47,21 @@ let currentEffective: PaneCollapseSnapshot = persistedSnapshot;
 let hydrated = false;
 let pendingFocus: FocusTarget | null = null;
 const listeners = new Set<() => void>();
-const forceExpandReasons = new Set<string>();
+const forceExpandReasons: { exec: Set<string>; explainer: Set<string> } = {
+  exec: new Set<string>(),
+  explainer: new Set<string>(),
+};
 
 function notify(): void {
   for (const listener of listeners) listener();
 }
 
 function recomputeEffective(): void {
-  currentEffective = forceExpandReasons.size > 0 ? DEFAULT_SNAPSHOT : persistedSnapshot;
+  currentEffective = {
+    exec: forceExpandReasons.exec.size > 0 ? false : persistedSnapshot.exec,
+    explainer:
+      forceExpandReasons.explainer.size > 0 ? false : persistedSnapshot.explainer,
+  };
 }
 
 function hydrateOnce(): void {
@@ -125,23 +132,37 @@ export function setExplainerCollapsed(b: boolean): void {
   setSnapshot({ exec: persistedSnapshot.exec, explainer: b });
 }
 
-export function pushForceExpand(reason: 'tour' | 'pause'): void {
-  hydrateOnce();
-  const wasEmpty = forceExpandReasons.size === 0;
-  forceExpandReasons.add(reason);
-  if (wasEmpty && forceExpandReasons.size > 0) {
-    recomputeEffective();
-    notify();
-  }
+export type ForceExpandPane = 'exec' | 'explainer' | 'both';
+
+function effectiveChanged(prev: PaneCollapseSnapshot): boolean {
+  return (
+    prev.exec !== currentEffective.exec || prev.explainer !== currentEffective.explainer
+  );
 }
 
-export function popForceExpand(reason: 'tour' | 'pause'): void {
+export function pushForceExpand(
+  reason: 'tour' | 'pause',
+  pane: ForceExpandPane = 'both',
+): void {
   hydrateOnce();
-  const hadIt = forceExpandReasons.delete(reason);
-  if (hadIt && forceExpandReasons.size === 0) {
-    recomputeEffective();
-    notify();
-  }
+  const prev = currentEffective;
+  if (pane === 'exec' || pane === 'both') forceExpandReasons.exec.add(reason);
+  if (pane === 'explainer' || pane === 'both') forceExpandReasons.explainer.add(reason);
+  recomputeEffective();
+  if (effectiveChanged(prev)) notify();
+}
+
+export function popForceExpand(
+  reason: 'tour' | 'pause',
+  pane: ForceExpandPane = 'both',
+): void {
+  hydrateOnce();
+  const prev = currentEffective;
+  if (pane === 'exec' || pane === 'both') forceExpandReasons.exec.delete(reason);
+  if (pane === 'explainer' || pane === 'both')
+    forceExpandReasons.explainer.delete(reason);
+  recomputeEffective();
+  if (effectiveChanged(prev)) notify();
 }
 
 export function consumePendingFocus(target: FocusTarget): boolean {

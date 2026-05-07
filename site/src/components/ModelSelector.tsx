@@ -140,7 +140,11 @@ export default function ModelSelector({
           <ChevronDownIcon size={12} />
         </button>
         {modelMenuOpen && (
-          <div className="chat-model-popover" role="menu">
+          <div
+            className="chat-model-popover"
+            role="menu"
+            data-tour-id="chat.modelPopover"
+          >
             {LOCAL_GEMMA_MODELS.map((m) => {
               const isActive =
                 ep === LOCAL_GEMMA_ENDPOINT && rawModel === m.id;

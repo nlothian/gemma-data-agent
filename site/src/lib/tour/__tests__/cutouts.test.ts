@@ -19,6 +19,7 @@ describe('cutout registry', () => {
       'chat.playButton',
       'chat.conversation',
       'chat.compactionRunButton',
+      'chat.throbber',
       'exec.panel',
       'exec.featureSelector',
       'exec.explainerPanel',
@@ -26,6 +27,8 @@ describe('cutout registry', () => {
       'exec.runButton',
       'exec.pythonOutput',
       'exec.dataPanel',
+      'exec.explainerMessages',
+      'sourcecode.viewer',
     ];
     for (const id of declared) {
       expect(CUTOUTS[id]).toBeDefined();

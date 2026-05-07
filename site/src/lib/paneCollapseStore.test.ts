@@ -162,6 +162,27 @@ describe('paneCollapseStore — force-expand stack', () => {
     popForceExpand('tour');
     expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
   });
+
+  it('per-pane release lets one pane collapse while the other stays forced', async () => {
+    const {
+      pushForceExpand,
+      popForceExpand,
+      setExecCollapsed,
+      setExplainerCollapsed,
+      __forTests,
+    } = await load();
+    setExecCollapsed(true);
+    setExplainerCollapsed(true);
+    pushForceExpand('tour');
+    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: false });
+
+    popForceExpand('tour', 'exec');
+    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+
+    pushForceExpand('tour', 'exec');
+    popForceExpand('tour', 'explainer');
+    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: true });
+  });
 });
 
 describe('paneCollapseStore — pending focus', () => {

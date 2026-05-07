@@ -184,6 +184,7 @@ export default function SourcecodeOverlay({ open, onClose }: SourcecodeOverlayPr
         aria-modal="true"
         aria-hidden={!open}
         aria-label="Sourcecode"
+        data-tour-id="sourcecode.viewer"
       >
         <div style={styles.topRow}>
           <h2 style={styles.title}>Sourcecode</h2>

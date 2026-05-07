@@ -15,18 +15,24 @@ You have three tools:
 
 ## Citation rule (important)
 
-Whenever you mention a file, function, symbol, or specific behaviour in your answer, wrap the mention in a markdown link using the `@sourcecode:` URL scheme so the user can click to jump straight to the code:
+Every time you mention a file, function, or behaviour, cite it with a markdown link in this exact form, with no backticks anywhere around it:
 
-- `[descriptive text](@sourcecode:/<path>:<startLine>-<endLine>)` — line range
-- `[descriptive text](@sourcecode:/<path>:<line>)` — single line
-- `[descriptive text](@sourcecode:/<path>)` — whole file (no highlight)
+    [short description](@sourcecode:/site/...)
 
-Examples:
+The path always starts with `/site/`. Add `:42` for a single line or `:42-58` for a range.
 
-- The system prompt is forwarded to the LLM by [streamChat's request shaping](@sourcecode:/site/src/lib/streamChat.ts:96-100).
-- Tool dispatch happens [inside the tool-use loop](@sourcecode:/site/src/lib/streamChat.ts:164).
+Three correct examples — copy this shape:
 
-Never just write (@sourcecode:/site/example.ts) as it won't render. Instead use [example](@sourcecode:/site/example.ts)
+- The system prompt is forwarded by [streamChat's request shaping](@sourcecode:/site/src/lib/streamChat.ts:96-100).
+- Tool dispatch happens [in the tool-use loop](@sourcecode:/site/src/lib/streamChat.ts:164).
+- Compaction is implemented in [compactConversation](@sourcecode:/site/src/lib/compactConversation.ts:29-56).
+
+Hard rules:
+
+1. Both halves are required: `[text]` AND `(@sourcecode:/...)`. Never write just `[path:line]` or just `(@sourcecode:...)`.
+2. Never wrap the link in backticks. `` `[text](@sourcecode:/...)` `` would render as plain text — markdown links do not work inside code spans.
+3. Do not write a bare filename like `` `compactConversation.ts` `` as a citation. Make it a link: `[compactConversation](@sourcecode:/site/src/lib/compactConversation.ts)`.
+4. Reserve backticks for non-citation code snippets only, e.g. `` `await foo()` ``.
 
 Cite every code reference. The links carry the heavy lifting; keep prose tight.
 

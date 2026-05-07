@@ -33,10 +33,13 @@ describe('DEFAULT_TOUR', () => {
     }
   });
 
-  it('every onEnter step references a known action name', () => {
+  it('every onEnter / onExit step references a known action name', () => {
     const valid = new Set<string>(ACTION_NAMES);
     for (const stage of DEFAULT_TOUR.stages) {
       for (const step of stage.onEnter ?? []) {
+        expect(valid.has(step.action)).toBe(true);
+      }
+      for (const step of stage.onExit ?? []) {
         expect(valid.has(step.action)).toBe(true);
       }
     }

@@ -18,12 +18,25 @@ export interface ExecBridge {
   setPythonEditor(code: string): void;
 }
 
+export interface ExplainerBridge {
+  /** Set the active conversation entry's draft input. */
+  setConversationInput(text: string): void;
+  /** Submit the active conversation entry. No-op if there's no draft or the
+   *  send button would be disabled (streaming, unconfigured LLM, empty input). */
+  sendActiveConversation(): void;
+  /** Subscribe to streaming-state changes on the active conversation. */
+  subscribeStreaming(listener: () => void): () => void;
+  /** Current active conversation's `isStreaming` flag. */
+  isStreamingActive(): boolean;
+}
+
 interface BridgeRegistry {
   chat: ChatBridge | null;
   exec: ExecBridge | null;
+  explainer: ExplainerBridge | null;
 }
 
-const registry: BridgeRegistry = { chat: null, exec: null };
+const registry: BridgeRegistry = { chat: null, exec: null, explainer: null };
 
 export function registerChatBridge(b: ChatBridge): () => void {
   registry.chat = b;
@@ -39,6 +52,13 @@ export function registerExecBridge(b: ExecBridge): () => void {
   };
 }
 
+export function registerExplainerBridge(b: ExplainerBridge): () => void {
+  registry.explainer = b;
+  return () => {
+    if (registry.explainer === b) registry.explainer = null;
+  };
+}
+
 export function getChatBridge(): ChatBridge {
   if (!registry.chat) {
     throw new Error('tour: chat bridge not registered (is ChatSidebar mounted?)');
@@ -51,4 +71,13 @@ export function getExecBridge(): ExecBridge {
     throw new Error('tour: exec bridge not registered (is ExecutionPanel mounted?)');
   }
   return registry.exec;
+}
+
+export function getExplainerBridge(): ExplainerBridge {
+  if (!registry.explainer) {
+    throw new Error(
+      'tour: explainer bridge not registered (is ExplainerPanel mounted?)',
+    );
+  }
+  return registry.explainer;
 }

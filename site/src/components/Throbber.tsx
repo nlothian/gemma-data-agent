@@ -40,6 +40,7 @@ export default function Throbber() {
     <div
       className="throbber"
       data-active="true"
+      data-tour-id="chat.throbber"
       role="status"
       aria-live="polite"
     >

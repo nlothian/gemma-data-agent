@@ -14,7 +14,7 @@ const features: TourStage = {
           dataLoading: true,
           runSql: false,
           runPython: true,
-          runReact: false,
+          runReact: true,
           runSubAgent: false,
         },
       },

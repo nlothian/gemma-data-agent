@@ -9,6 +9,8 @@ import features from './07-features';
 import pythonPlot from './08-python-plot';
 import pythonOutput from './09-python-output';
 import subAgentsPipeline from './10-subagents-pipeline';
+import explainerSourcecode from './11-explainer-sourcecode';
+import sourcecodeView from './12-sourcecode-view';
 
 export const DEFAULT_TOUR: TourDefinition = {
   id: 'default',
@@ -23,5 +25,7 @@ export const DEFAULT_TOUR: TourDefinition = {
     pythonPlot,
     pythonOutput,
     subAgentsPipeline,
+    explainerSourcecode,
+    sourcecodeView,
   ],
 };

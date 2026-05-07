@@ -7,10 +7,8 @@ import { DEFAULT_TOUR } from '../stages';
 import { ACTION_NAMES } from '../actions';
 
 describe('subagents-pipeline stage', () => {
-  it('is registered as the last stage in DEFAULT_TOUR', () => {
-    const last = DEFAULT_TOUR.stages[DEFAULT_TOUR.stages.length - 1];
-    expect(last).toBe(subAgentsPipeline);
-    expect(last.id).toBe('subagents-pipeline');
+  it('is registered in DEFAULT_TOUR', () => {
+    expect(DEFAULT_TOUR.stages).toContain(subAgentsPipeline);
   });
 
   it('uses only known action names', () => {

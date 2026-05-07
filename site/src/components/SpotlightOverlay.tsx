@@ -151,12 +151,50 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
     if (phase === null) return;
 
     let cancelled = false;
+    let ro: ResizeObserver | null = null;
+    const observedEls = new Set<Element>();
+
+    const collectCutoutElements = (): Element[] => {
+      const els: Element[] = [];
+      for (const id of cutouts) {
+        for (const sel of selectorsFor(id)) {
+          document.querySelectorAll(sel).forEach((el) => els.push(el));
+        }
+      }
+      return els;
+    };
+
+    // Re-sync the ResizeObserver to whatever elements currently match the
+    // active cutout selectors. Cutout targets can mount/unmount across a
+    // stage's lifetime (e.g. the activity throbber, which only renders while
+    // the LLM is busy), so the RO membership has to follow the DOM rather
+    // than be fixed at effect-setup time. Without this, a cutout that grew
+    // when its element first appeared would not shrink back when the
+    // element's *contents* later resized (size changes don't fire the
+    // MutationObserver).
+    const syncResizeObserver = (): void => {
+      if (!ro) return;
+      const current = new Set(collectCutoutElements());
+      for (const el of observedEls) {
+        if (!current.has(el)) {
+          ro.unobserve(el);
+          observedEls.delete(el);
+        }
+      }
+      for (const el of current) {
+        if (!observedEls.has(el)) {
+          ro.observe(el);
+          observedEls.add(el);
+        }
+      }
+    };
 
     const recompute = (): void => {
       if (cancelled) return;
       setVp({ vw: window.innerWidth, vh: window.innerHeight });
       const target = resolveCutoutRects(cutouts);
       animateTo(target);
+      syncResizeObserver();
     };
 
     const animateTo = (target: Rect[]): void => {
@@ -191,19 +229,11 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
       tweenRaf.current = requestAnimationFrame(tick);
     };
 
-    recompute();
-
-    let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(recompute);
-      const els: Element[] = [];
-      for (const id of cutouts) {
-        for (const sel of selectorsFor(id)) {
-          document.querySelectorAll(sel).forEach((el) => els.push(el));
-        }
-      }
-      for (const el of els) ro.observe(el);
     }
+
+    recompute();
 
     // Watch for cutout targets that mount/unmount after the initial scan
     // (e.g. a popover opened by an onEnter action). The MutationObserver

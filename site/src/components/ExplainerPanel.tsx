@@ -46,6 +46,7 @@ import { mapMessagesForLLM } from '../lib/autoCompaction';
 import type { ChatMessage } from '../types/chat';
 import explainerConversationSystemPrompt from '../prompts/explainerConversationSystemPrompt.md?raw';
 import { EXPLAINER_TOOLS, runExplainerTool } from '../lib/explainerTools';
+import { registerExplainerBridge } from '../lib/tour/bridge';
 
 const MAX_STREAMING_CONVERSATIONS = 10;
 
@@ -156,6 +157,56 @@ export default function ExplainerPanel() {
       conversationAbortsRef.current.delete(entryId);
     }
   }
+
+  // Bridge for tour actions: keep refs in sync with the latest state, then
+  // expose a stable handle that closes over those refs. Registering once on
+  // mount avoids re-registering on every keystroke / token.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const unconfiguredRef = useRef(unconfigured);
+  unconfiguredRef.current = unconfigured;
+  const sendExplainerTurnRef = useRef(sendExplainerTurn);
+  sendExplainerTurnRef.current = sendExplainerTurn;
+  const streamingListenersRef = useRef(new Set<() => void>());
+
+  function activeConversation(s: ExplainerHistoryState): ConversationEntry | null {
+    const entry = s.activeId ? findEntry(s, s.activeId) : null;
+    return entry?.kind === 'conversation' ? entry : null;
+  }
+
+  useEffect(() => {
+    return registerExplainerBridge({
+      setConversationInput: (text: string) => {
+        const conv = activeConversation(stateRef.current);
+        if (!conv) return;
+        dispatch({ type: 'CONVERSATION_SET_INPUT', entryId: conv.id, value: text });
+      },
+      sendActiveConversation: () => {
+        const conv = activeConversation(stateRef.current);
+        if (!conv) return;
+        const trimmed = conv.draftInput.trim();
+        if (conv.isStreaming || unconfiguredRef.current || trimmed === '') return;
+        void sendExplainerTurnRef.current(conv.id, trimmed);
+      },
+      subscribeStreaming: (listener) => {
+        streamingListenersRef.current.add(listener);
+        return () => {
+          streamingListenersRef.current.delete(listener);
+        };
+      },
+      isStreamingActive: () => activeConversation(stateRef.current)?.isStreaming ?? false,
+    });
+  }, []);
+
+  // Notify bridge subscribers when the active conversation's streaming flag
+  // flips. Keyed off the active id + flag so unrelated reducer churn (token
+  // streaming into a non-active entry, summariser updates, etc.) doesn't
+  // trigger spurious notifications.
+  const activeStreaming = activeConversation(state)?.isStreaming ?? false;
+  const activeConversationId = activeConversation(state)?.id ?? null;
+  useEffect(() => {
+    for (const fn of streamingListenersRef.current) fn();
+  }, [activeStreaming, activeConversationId]);
 
   // Translate the debugger snapshot into state-machine events.
   useEffect(() => {
@@ -551,6 +602,7 @@ function ConversationBody({
         <MessagesView
           messages={entry.messages}
           pendingAssistantId={pendingAssistantId}
+          tourId="exec.explainerMessages"
           emptyState={
             <p className="explainer-conversation-empty">
               Ask a question to get started.

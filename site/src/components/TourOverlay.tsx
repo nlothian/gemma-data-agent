@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -22,10 +30,14 @@ interface UnionRect {
   h: number;
 }
 
-const CARD_WIDTH = 320;
+const DEFAULT_CARD_WIDTH = 320;
+const MIN_CARD_W = 280;
+const MAX_CARD_W_CENTERED = 720;
+const MAX_CARD_W_SPOTLIGHT = 480;
+const PROBE_WIDTH = 400;
+const PHI = 1.618;
 const CARD_PADDING = 16;
 const CARD_GAP = 16;
-const MIN_FREE_W = 280;
 const MIN_FREE_H = 140;
 
 type Side = 'right' | 'below' | 'left' | 'above' | 'centred-bottom';
@@ -34,6 +46,11 @@ interface CardPosition {
   left: number;
   top: number;
   side: Side;
+}
+
+interface CardSize {
+  width: number;
+  estHeight: number;
 }
 
 function unionOf(rects: SpotlightRect[]): UnionRect | null {
@@ -58,6 +75,7 @@ function clamp(v: number, lo: number, hi: number): number {
 
 function chooseSide(
   u: UnionRect,
+  cardW: number,
   cardH: number,
   vw: number,
   vh: number,
@@ -70,10 +88,10 @@ function chooseSide(
   const belowFreeH = vh - (u.y + u.h) - margin - safe;
   const aboveFreeH = u.y - margin - safe;
 
-  const rightOk = rightFreeW >= MIN_FREE_W && vh - 2 * safe >= MIN_FREE_H;
-  const belowOk = belowFreeH >= MIN_FREE_H && vw - 2 * safe >= MIN_FREE_W;
-  const leftOk = leftFreeW >= MIN_FREE_W && vh - 2 * safe >= MIN_FREE_H;
-  const aboveOk = aboveFreeH >= MIN_FREE_H && vw - 2 * safe >= MIN_FREE_W;
+  const rightOk = rightFreeW >= cardW && vh - 2 * safe >= MIN_FREE_H;
+  const belowOk = belowFreeH >= MIN_FREE_H && vw - 2 * safe >= cardW;
+  const leftOk = leftFreeW >= cardW && vh - 2 * safe >= MIN_FREE_H;
+  const aboveOk = aboveFreeH >= MIN_FREE_H && vw - 2 * safe >= cardW;
 
   if (rightOk) {
     const left = u.x + u.w + margin;
@@ -82,33 +100,65 @@ function chooseSide(
   }
   if (belowOk) {
     const top = u.y + u.h + margin;
-    const left = clamp(
-      u.x + u.w / 2 - CARD_WIDTH / 2,
-      safe,
-      vw - CARD_WIDTH - safe,
-    );
+    const left = clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe);
     return { left, top, side: 'below' };
   }
   if (leftOk) {
-    const left = u.x - margin - CARD_WIDTH;
+    const left = u.x - margin - cardW;
     const top = clamp(u.y + u.h / 2 - cardH / 2, safe, vh - cardH - safe);
     return { left, top, side: 'left' };
   }
   if (aboveOk) {
     const top = u.y - margin - cardH;
-    const left = clamp(
-      u.x + u.w / 2 - CARD_WIDTH / 2,
-      safe,
-      vw - CARD_WIDTH - safe,
-    );
+    const left = clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe);
     return { left, top, side: 'above' };
   }
   // Fallback — centred at the bottom of the viewport.
   return {
-    left: clamp(vw / 2 - CARD_WIDTH / 2, safe, vw - CARD_WIDTH - safe),
+    left: clamp(vw / 2 - cardW / 2, safe, vw - cardW - safe),
     top: vh - cardH - safe - margin,
     side: 'centred-bottom',
   };
+}
+
+function measureAt(el: HTMLDivElement, w: number): number {
+  el.style.width = `${w}px`;
+  // Reading scrollHeight forces a synchronous layout.
+  return el.scrollHeight;
+}
+
+function findGoldenSize(stage: TourStage, el: HTMLDivElement): CardSize {
+  const hasCutouts = stage.cutouts.length > 0;
+  const vw = window.innerWidth;
+  const maxByViewport = Math.max(
+    MIN_CARD_W,
+    hasCutouts
+      ? Math.min(vw * 0.4, MAX_CARD_W_SPOTLIGHT)
+      : Math.min(vw * 0.6, MAX_CARD_W_CENTERED),
+  );
+
+  if (stage.cardWidth != null) {
+    const w = clamp(stage.cardWidth, MIN_CARD_W, maxByViewport);
+    return { width: w, estHeight: measureAt(el, w) };
+  }
+
+  // Initial guess: assume content area is roughly conserved across widths.
+  const probeH = measureAt(el, PROBE_WIDTH);
+  const area = PROBE_WIDTH * Math.max(probeH, 1);
+  let w = clamp(Math.round(Math.sqrt(area * PHI)), MIN_CARD_W, maxByViewport);
+  let h = measureAt(el, w);
+  // Refine: width should equal φ × height. Re-measure at most twice — text
+  // reflow makes the area-conservation guess off, but a couple of fixed-point
+  // iterations converge quickly.
+  for (let i = 0; i < 2; i++) {
+    const ratio = w / Math.max(h, 1);
+    if (Math.abs(ratio - PHI) / PHI < 0.05) break;
+    const wNext = clamp(Math.round(h * PHI), MIN_CARD_W, maxByViewport);
+    if (wNext === w) break;
+    w = wNext;
+    h = measureAt(el, w);
+  }
+  return { width: w, estHeight: h };
 }
 
 function prefersReducedMotion(): boolean {
@@ -121,9 +171,12 @@ export default function TourOverlay(): JSX.Element | null {
   const stage: TourStage | null = def ? def.stages[snapshot.stageIndex] ?? null : null;
   const isLast = def !== null && snapshot.stageIndex === def.stages.length - 1;
 
-  const [pos, setPos] = useState<CardPosition | null>(null);
+  const [cardSize, setCardSize] = useState<CardSize | null>(null);
+  const [layoutRects, setLayoutRects] = useState<SpotlightRect[]>([]);
+  const [cardActualHeight, setCardActualHeight] = useState<number | null>(null);
   const [contentVisible, setContentVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const measurerRef = useRef<HTMLDivElement | null>(null);
   const reducedMotion = useRef(false);
 
   // Autostart from menu navigation.
@@ -146,24 +199,55 @@ export default function TourOverlay(): JSX.Element | null {
     return undefined;
   }, [snapshot.stageIndex, snapshot.stageStatus]);
 
-  const onLayout = useMemo(
-    () => (rects: SpotlightRect[]) => {
-      const u = unionOf(rects);
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const cardH = cardRef.current?.offsetHeight ?? 200;
-      if (!u) {
-        setPos({
-          left: clamp(vw / 2 - CARD_WIDTH / 2, 8, vw - CARD_WIDTH - 8),
-          top: clamp((vh - cardH) / 2, 8, vh - cardH - 8),
-          side: 'centred-bottom',
-        });
-        return;
-      }
-      setPos(chooseSide(u, cardH, vw, vh));
-    },
-    [],
-  );
+  // Iterative measurement: fixed-point search for a card width whose
+  // w/h ratio ≈ golden, using the hidden measurer to read scrollHeight.
+  useLayoutEffect(() => {
+    if (!stage) return;
+    setCardActualHeight(null);
+    const measure = (): void => {
+      const el = measurerRef.current;
+      if (!el) return;
+      setCardSize(findGoldenSize(stage, el));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [stage]);
+
+  // Track the real card height so positioning uses an accurate value once
+  // the browser has actually laid out the new width. Ignore zero readings —
+  // they happen when the element is being detached during unmount and
+  // would otherwise persist across tour close/reopen.
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const h = el.offsetHeight;
+      if (h > 0) setCardActualHeight(h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [cardSize]);
+
+  const onLayout = useCallback((rects: SpotlightRect[]) => {
+    setLayoutRects(rects);
+  }, []);
+
+  const pos: CardPosition | null = useMemo(() => {
+    if (!cardSize) return null;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const cardH = cardActualHeight && cardActualHeight > 0 ? cardActualHeight : cardSize.estHeight;
+    const u = unionOf(layoutRects);
+    if (!u) {
+      return {
+        left: clamp(vw / 2 - cardSize.width / 2, 8, vw - cardSize.width - 8),
+        top: clamp((vh - cardH) / 2, 8, vh - cardH - 8),
+        side: 'centred-bottom',
+      };
+    }
+    return chooseSide(u, cardSize.width, cardH, vw, vh);
+  }, [cardSize, layoutRects, cardActualHeight]);
 
   if (!snapshot.running || !stage) return null;
 
@@ -174,11 +258,13 @@ export default function TourOverlay(): JSX.Element | null {
     ? 'opacity 180ms ease'
     : 'left 200ms ease, top 200ms ease, opacity 180ms ease';
 
+  const width = cardSize?.width ?? DEFAULT_CARD_WIDTH;
+
   const cardStyle: React.CSSProperties = {
     position: 'fixed',
     left: pos?.left ?? -9999,
     top: pos?.top ?? -9999,
-    width: CARD_WIDTH,
+    width,
     padding: CARD_PADDING,
     background: 'var(--gel-white)',
     border: '1px solid var(--mist)',
@@ -192,6 +278,21 @@ export default function TourOverlay(): JSX.Element | null {
     pointerEvents: 'auto',
     transition,
     opacity: pos ? 1 : 0,
+    boxSizing: 'border-box',
+  };
+
+  const measurerStyle: React.CSSProperties = {
+    position: 'fixed',
+    left: -99999,
+    top: 0,
+    // width is assigned imperatively by findGoldenSize during layout effect.
+    padding: CARD_PADDING,
+    fontFamily: 'var(--font-sans)',
+    fontSize: '14px',
+    lineHeight: 1.5,
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    boxSizing: 'border-box',
   };
 
   const contentStyle: React.CSSProperties = {
@@ -204,14 +305,20 @@ export default function TourOverlay(): JSX.Element | null {
     : {};
 
   return (
-    <SpotlightOverlay
-      cutouts={stage.cutouts}
-      open={snapshot.running}
-      onDismiss={end}
-      showCloseButton={true}
-      onLayout={onLayout}
-    >
-      <div ref={cardRef} role="dialog" aria-label="Tour step" style={cardStyle}>
+    <>
+      <div ref={measurerRef} aria-hidden="true" style={measurerStyle}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{stage.markdown}</ReactMarkdown>
+        {/* Reserve room for the button row so the area estimate isn't short. */}
+        <div style={{ marginTop: 12, height: 32 }} />
+      </div>
+      <SpotlightOverlay
+        cutouts={stage.cutouts}
+        open={snapshot.running}
+        onDismiss={end}
+        showCloseButton={true}
+        onLayout={onLayout}
+      >
+        <div ref={cardRef} role="dialog" aria-label="Tour step" style={cardStyle}>
         <div style={contentStyle}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{stage.markdown}</ReactMarkdown>
         </div>
@@ -230,5 +337,6 @@ export default function TourOverlay(): JSX.Element | null {
         </div>
       </div>
     </SpotlightOverlay>
+    </>
   );
 }
