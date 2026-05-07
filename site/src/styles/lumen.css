@@ -1833,8 +1833,15 @@ body.exec-resizing {
   white-space: nowrap;
 }
 
-.explainer-tab-clear {
+.explainer-tabs-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-shrink: 0;
+}
+
+.explainer-tab-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1844,14 +1851,98 @@ body.exec-resizing {
   background: transparent;
   color: var(--steel);
   cursor: pointer;
-  flex-shrink: 0;
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
-.explainer-tab-clear:hover {
+.explainer-tab-action:hover:not(:disabled) {
   color: var(--ink);
   background: var(--white);
   border-color: var(--mist);
+}
+
+.explainer-tab-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.explainer-conversation-empty {
+  margin: 0;
+  color: var(--steel);
+  font-style: italic;
+}
+
+.explainer-conversation-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: calc(var(--s-3) * -1);
+}
+
+.explainer-conversation-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-3);
+}
+
+.explainer-conversation-composer {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--white);
+  border-top: 1px solid var(--mist);
+}
+
+.explainer-conversation-input {
+  flex: 1;
+  width: 100%;
+  height: 36px;
+  resize: none;
+  overflow: hidden;
+  padding: 8px var(--s-3);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-8);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink);
+  background: var(--white);
+  outline: none;
+  white-space: nowrap;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.explainer-conversation-input:focus {
+  border-color: var(--aqua-400);
+  box-shadow: 0 0 0 3px rgba(30, 102, 232, 0.15);
+}
+.explainer-conversation-input:disabled {
+  background: var(--snow);
+  color: var(--steel);
+  cursor: not-allowed;
+}
+
+.explainer-conversation-send {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--aqua-500);
+  color: var(--white);
+  border: 1px solid var(--aqua-500);
+  border-radius: var(--r-8);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+}
+.explainer-conversation-send:hover:not(:disabled) {
+  background: var(--aqua-700, var(--aqua-500));
+  border-color: var(--aqua-700, var(--aqua-500));
+}
+.explainer-conversation-send:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .compaction-preview-overlay {
