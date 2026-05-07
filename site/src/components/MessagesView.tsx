@@ -1,16 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage } from '../types/chat';
 import {
   parseAssistantContent,
   type AssistantSegment,
 } from '../lib/parseAssistantContent';
-import {
-  parseSourcecodeUrl,
-  SOURCECODE_URL_PREFIX,
-} from '../lib/sourcecode/parseSourcecodeUrl';
-import { showSourcecodeRange } from '../lib/sourcecode/showRange';
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -19,51 +14,10 @@ import {
 
 const MARKDOWN_PLUGINS = [remarkGfm];
 
-// react-markdown's default urlTransform sanitises non-standard schemes (it
-// only allows http/https/mailto/tel/etc.), which would silently drop our
-// `@sourcecode:` hrefs before the `a` component sees them. Whitelist the
-// scheme here.
-function markdownUrlTransform(url: string): string {
-  return url.startsWith(SOURCECODE_URL_PREFIX) ? url : defaultUrlTransform(url);
-}
-
-function openSourcecodeFromHref(href: string): void {
-  const parsed = parseSourcecodeUrl(href);
-  if (!parsed) return;
-  showSourcecodeRange({
-    path: parsed.path,
-    startLine: parsed.startLine ?? 1,
-    endLine: parsed.endLine,
-  });
-}
-
 const MARKDOWN_COMPONENTS = {
-  a: ({
-    href,
-    children,
-    ...rest
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-    if (typeof href === 'string' && href.startsWith(SOURCECODE_URL_PREFIX)) {
-      return (
-        <button
-          type="button"
-          className="chat-sourcecode-link"
-          title={href}
-          onClick={(e) => {
-            e.preventDefault();
-            openSourcecodeFromHref(href);
-          }}
-        >
-          {children}
-        </button>
-      );
-    }
-    return (
-      <a {...rest} href={href} target="_blank" rel="noopener noreferrer">
-        {children}
-      </a>
-    );
-  },
+  a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a {...props} target="_blank" rel="noopener noreferrer" />
+  ),
 };
 
 export function CollapsibleThinking({ text, done }: { text: string; done: boolean }) {
@@ -212,7 +166,6 @@ function AssistantBody({ content }: { content: string }) {
               key={i}
               remarkPlugins={MARKDOWN_PLUGINS}
               components={MARKDOWN_COMPONENTS}
-              urlTransform={markdownUrlTransform}
             >
               {seg.text}
             </ReactMarkdown>
