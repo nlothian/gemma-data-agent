@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import useLLMConfig from '../hooks/useLLMConfig';
+import useLLMConfig, { isLLMUnconfigured } from '../hooks/useLLMConfig';
 import useChatHistory from '../hooks/useChatHistory';
 import useChatSidebarWidth, {
   MIN_WIDTH as CHAT_MIN_WIDTH,
@@ -164,14 +164,7 @@ export default function ChatSidebar() {
     historyRef.current = history.messages;
   }, [history.messages]);
 
-  const unconfigured = useMemo(() => {
-    if (!cfgReady) return false;
-    const ep = config.activeEndpoint;
-    if (!ep) return true;
-    if (!isLocalGemmaEndpoint(ep) && !config.apiKeys[ep]) return true;
-    if (!config.models[ep]) return true;
-    return false;
-  }, [cfgReady, config]);
+  const unconfigured = isLLMUnconfigured(config, cfgReady);
 
   useEffect(() => {
     void hydrateOnce();

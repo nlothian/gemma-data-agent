@@ -29,7 +29,18 @@ export type ExplainerEntry =
   | { id: string; kind: 'paused-react'; code: string; summary: SummaryState }
   | { id: string; kind: 'paused-subagent'; prompt: string; summary: SummaryState }
   | { id: string; kind: 'paused-load'; url: string }
-  | { id: string; kind: 'paused-compaction'; messages: ChatMessage[] };
+  | { id: string; kind: 'paused-compaction'; messages: ChatMessage[] }
+  | {
+      id: string;
+      kind: 'conversation';
+      title: string;
+      messages: ChatMessage[];
+      draftInput: string;
+      isStreaming: boolean;
+      error?: string;
+    };
+
+export type ConversationEntry = Extract<ExplainerEntry, { kind: 'conversation' }>;
 
 export type LiveMode = 'running' | 'paused-no-pending' | 'pending';
 
@@ -51,7 +62,18 @@ export type ExplainerEvent =
   | { type: 'SUMMARY_ERROR'; entryId: string; message: string }
   | { type: 'SET_ACTIVE'; id: string }
   | { type: 'CLEAR_ALL' }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'NEW_CONVERSATION' }
+  | { type: 'CONVERSATION_SET_INPUT'; entryId: string; value: string }
+  | {
+      type: 'CONVERSATION_APPEND_USER';
+      entryId: string;
+      userMessage: ChatMessage;
+      assistantMessageId: string;
+    }
+  | { type: 'CONVERSATION_STREAM_TOKEN'; entryId: string; delta: string }
+  | { type: 'CONVERSATION_STREAM_DONE'; entryId: string }
+  | { type: 'CONVERSATION_STREAM_ERROR'; entryId: string; message: string };
 
 export const initialState: ExplainerHistoryState = {
   entries: [],
@@ -120,6 +142,8 @@ function sameContent(a: ExplainerEntry, b: ExplainerEntry): boolean {
       return a.url === (b as typeof a).url;
     case 'paused-compaction':
       return a.messages.length === (b as typeof a).messages.length;
+    case 'conversation':
+      return false;
   }
 }
 
@@ -151,6 +175,51 @@ function applySummary(
     ) return entry;
     return { ...entry, summary };
   });
+}
+
+function patchConversation(
+  state: ExplainerHistoryState,
+  entryId: string,
+  patch: (e: ConversationEntry) => ConversationEntry,
+): ExplainerHistoryState {
+  return patchEntry(state, entryId, (entry) => {
+    if (entry.kind !== 'conversation') return entry;
+    return patch(entry);
+  });
+}
+
+/**
+ * Trim the *existing* entry list so a new conversation entry can be
+ * appended without exceeding MAX_ENTRIES. Eviction order:
+ *   1. Oldest non-conversation entry.
+ *   2. Otherwise, oldest non-streaming conversation.
+ *   3. Otherwise (every existing entry is a streaming conversation),
+ *      return unchanged — the caller appends anyway and the cap is
+ *      exceeded by 1 rather than killing a live stream.
+ *
+ * Operates on `state.entries` only (before the new entry is appended) so
+ * the freshly-minted non-streaming conversation can never match the
+ * "oldest non-streaming conversation" rule and evict itself.
+ */
+function evictExistingForNewConversation(
+  entries: ExplainerEntry[],
+): ExplainerEntry[] {
+  if (entries.length < MAX_ENTRIES) return entries;
+  const idxNonConversation = entries.findIndex((e) => e.kind !== 'conversation');
+  if (idxNonConversation >= 0) {
+    const next = entries.slice();
+    next.splice(idxNonConversation, 1);
+    return next;
+  }
+  const idxIdleConversation = entries.findIndex(
+    (e) => e.kind === 'conversation' && !e.isStreaming,
+  );
+  if (idxIdleConversation >= 0) {
+    const next = entries.slice();
+    next.splice(idxIdleConversation, 1);
+    return next;
+  }
+  return entries;
 }
 
 export function reduce(
@@ -208,6 +277,68 @@ export function reduce(
     case 'CLEAR_ALL':
       if (state.entries.length === 0 && state.activeId === null) return state;
       return { ...state, entries: [], activeId: null };
+
+    case 'NEW_CONVERSATION': {
+      const id = `e${state.nextId}`;
+      const entry: ExplainerEntry = {
+        id,
+        kind: 'conversation',
+        title: `Live help ${state.nextId}`,
+        messages: [],
+        draftInput: '',
+        isStreaming: false,
+      };
+      const entries = [...evictExistingForNewConversation(state.entries), entry];
+      return {
+        ...state,
+        entries,
+        activeId: id,
+        nextId: state.nextId + 1,
+      };
+    }
+
+    case 'CONVERSATION_SET_INPUT':
+      return patchConversation(state, event.entryId, (entry) =>
+        entry.draftInput === event.value ? entry : { ...entry, draftInput: event.value },
+      );
+
+    case 'CONVERSATION_APPEND_USER': {
+      const assistantMessage: ChatMessage = {
+        id: event.assistantMessageId,
+        role: 'assistant',
+        content: '',
+        createdAt: Date.now(),
+      };
+      return patchConversation(state, event.entryId, (entry) => ({
+        ...entry,
+        draftInput: '',
+        messages: [...entry.messages, event.userMessage, assistantMessage],
+        isStreaming: true,
+        error: undefined,
+      }));
+    }
+
+    case 'CONVERSATION_STREAM_TOKEN':
+      return patchConversation(state, event.entryId, (entry) => {
+        if (entry.messages.length === 0) return entry;
+        const last = entry.messages[entry.messages.length - 1];
+        if (last.role !== 'assistant') return entry;
+        const messages = entry.messages.slice();
+        messages[messages.length - 1] = { ...last, content: last.content + event.delta };
+        return { ...entry, messages };
+      });
+
+    case 'CONVERSATION_STREAM_DONE':
+      return patchConversation(state, event.entryId, (entry) =>
+        entry.isStreaming ? { ...entry, isStreaming: false } : entry,
+      );
+
+    case 'CONVERSATION_STREAM_ERROR':
+      return patchConversation(state, event.entryId, (entry) => ({
+        ...entry,
+        isStreaming: false,
+        error: event.message,
+      }));
   }
 }
 

@@ -9,6 +9,7 @@ import {
   type ExplainerHistoryState,
 } from './explainerStateMachine';
 import type { LLMConfig } from '../types/llm';
+import type { ChatMessage } from '../types/chat';
 
 function pythonPending(code: string): ExplainerEvent {
   return { type: 'PENDING', call: { toolName: 'RunPython', input: { code } } };
@@ -246,6 +247,229 @@ describe('explainerStateMachine', () => {
       kind: 'paused-python',
       summary: { status: 'ready', text: 'Prints one.' },
     });
+  });
+
+  it('NEW_CONVERSATION creates a conversation entry titled "Live help 1" and activates it', () => {
+    const next = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    expect(next.entries).toHaveLength(1);
+    expect(next.entries[0]).toMatchObject({
+      kind: 'conversation',
+      title: 'Live help 1',
+      messages: [],
+      draftInput: '',
+      isStreaming: false,
+    });
+    expect(next.activeId).toBe(next.entries[0].id);
+    expect(next.nextId).toBe(2);
+  });
+
+  it('NEW_CONVERSATION after a PENDING uses the next available counter for the title', () => {
+    const seeded = reduce(initialState, pythonPending('x = 1'));
+    const next = reduce(seeded, { type: 'NEW_CONVERSATION' });
+    expect(next.entries).toHaveLength(2);
+    expect(next.entries[1]).toMatchObject({
+      kind: 'conversation',
+      title: 'Live help 2',
+    });
+    expect(next.nextId).toBe(3);
+  });
+
+  it('CONVERSATION_SET_INPUT updates draftInput; same value returns same state reference', () => {
+    const seeded = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = seeded.entries[0].id;
+    const updated = reduce(seeded, { type: 'CONVERSATION_SET_INPUT', entryId: id, value: 'hi' });
+    expect(updated).not.toBe(seeded);
+    expect(updated.entries[0]).toMatchObject({ kind: 'conversation', draftInput: 'hi' });
+    const same = reduce(updated, { type: 'CONVERSATION_SET_INPUT', entryId: id, value: 'hi' });
+    expect(same).toBe(updated);
+  });
+
+  it('CONVERSATION_APPEND_USER appends user + empty assistant, sets isStreaming, clears draft and error', () => {
+    let s = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = s.entries[0].id;
+    s = reduce(s, { type: 'CONVERSATION_SET_INPUT', entryId: id, value: 'draft' });
+    s = reduce(s, { type: 'CONVERSATION_STREAM_ERROR', entryId: id, message: 'old' });
+    const userMessage: ChatMessage = {
+      id: 'u1',
+      role: 'user',
+      content: 'hello',
+      createdAt: 1000,
+    };
+    const next = reduce(s, {
+      type: 'CONVERSATION_APPEND_USER',
+      entryId: id,
+      userMessage,
+      assistantMessageId: 'a1',
+    });
+    const entry = next.entries[0];
+    expect(entry).toMatchObject({
+      kind: 'conversation',
+      draftInput: '',
+      isStreaming: true,
+      error: undefined,
+    });
+    if (entry.kind !== 'conversation') throw new Error('expected conversation');
+    expect(entry.messages).toHaveLength(2);
+    expect(entry.messages[0]).toBe(userMessage);
+    expect(entry.messages[1]).toMatchObject({
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+    });
+  });
+
+  it('CONVERSATION_STREAM_TOKEN appends the delta to the last assistant message', () => {
+    let s = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = s.entries[0].id;
+    s = reduce(s, {
+      type: 'CONVERSATION_APPEND_USER',
+      entryId: id,
+      userMessage: { id: 'u1', role: 'user', content: 'hi', createdAt: 1 },
+      assistantMessageId: 'a1',
+    });
+    s = reduce(s, { type: 'CONVERSATION_STREAM_TOKEN', entryId: id, delta: 'Hel' });
+    const entry = s.entries[0];
+    if (entry.kind !== 'conversation') throw new Error('expected conversation');
+    expect(entry.messages[1]).toMatchObject({ id: 'a1', content: 'Hel' });
+  });
+
+  it('multiple CONVERSATION_STREAM_TOKEN events accumulate the delta', () => {
+    let s = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = s.entries[0].id;
+    s = reduce(s, {
+      type: 'CONVERSATION_APPEND_USER',
+      entryId: id,
+      userMessage: { id: 'u1', role: 'user', content: 'hi', createdAt: 1 },
+      assistantMessageId: 'a1',
+    });
+    s = reduce(s, { type: 'CONVERSATION_STREAM_TOKEN', entryId: id, delta: 'Hel' });
+    s = reduce(s, { type: 'CONVERSATION_STREAM_TOKEN', entryId: id, delta: 'lo ' });
+    s = reduce(s, { type: 'CONVERSATION_STREAM_TOKEN', entryId: id, delta: 'world' });
+    const entry = s.entries[0];
+    if (entry.kind !== 'conversation') throw new Error('expected conversation');
+    expect(entry.messages[1]).toMatchObject({ content: 'Hello world' });
+  });
+
+  it('CONVERSATION_STREAM_DONE clears isStreaming; second call returns same state reference', () => {
+    let s = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = s.entries[0].id;
+    s = reduce(s, {
+      type: 'CONVERSATION_APPEND_USER',
+      entryId: id,
+      userMessage: { id: 'u1', role: 'user', content: 'hi', createdAt: 1 },
+      assistantMessageId: 'a1',
+    });
+    const done = reduce(s, { type: 'CONVERSATION_STREAM_DONE', entryId: id });
+    expect(done.entries[0]).toMatchObject({ kind: 'conversation', isStreaming: false });
+    const doneAgain = reduce(done, { type: 'CONVERSATION_STREAM_DONE', entryId: id });
+    expect(doneAgain).toBe(done);
+  });
+
+  it('CONVERSATION_STREAM_ERROR sets the error message and clears isStreaming', () => {
+    let s = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const id = s.entries[0].id;
+    s = reduce(s, {
+      type: 'CONVERSATION_APPEND_USER',
+      entryId: id,
+      userMessage: { id: 'u1', role: 'user', content: 'hi', createdAt: 1 },
+      assistantMessageId: 'a1',
+    });
+    const next = reduce(s, {
+      type: 'CONVERSATION_STREAM_ERROR',
+      entryId: id,
+      message: 'network down',
+    });
+    expect(next.entries[0]).toMatchObject({
+      kind: 'conversation',
+      isStreaming: false,
+      error: 'network down',
+    });
+  });
+
+  it('CONVERSATION_* events with an unknown entryId return the same state reference', () => {
+    const seeded = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    expect(reduce(seeded, { type: 'CONVERSATION_SET_INPUT', entryId: 'bogus', value: 'x' })).toBe(seeded);
+    expect(
+      reduce(seeded, {
+        type: 'CONVERSATION_APPEND_USER',
+        entryId: 'bogus',
+        userMessage: { id: 'u', role: 'user', content: 'h', createdAt: 1 },
+        assistantMessageId: 'a',
+      }),
+    ).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_TOKEN', entryId: 'bogus', delta: 'x' })).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_DONE', entryId: 'bogus' })).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_ERROR', entryId: 'bogus', message: 'm' })).toBe(seeded);
+  });
+
+  it('CONVERSATION_* events targeting a non-conversation entry return the same state reference', () => {
+    const seeded = reduce(initialState, pythonPending('x = 1'));
+    const id = seeded.entries[0].id;
+    expect(reduce(seeded, { type: 'CONVERSATION_SET_INPUT', entryId: id, value: 'x' })).toBe(seeded);
+    expect(
+      reduce(seeded, {
+        type: 'CONVERSATION_APPEND_USER',
+        entryId: id,
+        userMessage: { id: 'u', role: 'user', content: 'h', createdAt: 1 },
+        assistantMessageId: 'a',
+      }),
+    ).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_TOKEN', entryId: id, delta: 'x' })).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_DONE', entryId: id })).toBe(seeded);
+    expect(reduce(seeded, { type: 'CONVERSATION_STREAM_ERROR', entryId: id, message: 'm' })).toBe(seeded);
+  });
+
+  it('NEW_CONVERSATION evicts the oldest non-conversation entry when at the cap', () => {
+    let s: ExplainerHistoryState = initialState;
+    for (let i = 0; i < MAX_ENTRIES; i++) {
+      s = reduce(s, pythonPending(`x = ${i}`));
+    }
+    expect(s.entries).toHaveLength(MAX_ENTRIES);
+    const oldestId = s.entries[0].id;
+    const next = reduce(s, { type: 'NEW_CONVERSATION' });
+    expect(next.entries).toHaveLength(MAX_ENTRIES);
+    expect(next.entries.some((e) => e.id === oldestId)).toBe(false);
+    const last = next.entries[next.entries.length - 1];
+    expect(last).toMatchObject({ kind: 'conversation' });
+    expect(next.activeId).toBe(last.id);
+  });
+
+  it('NEW_CONVERSATION exceeds the cap by 1 when every entry is a streaming conversation', () => {
+    let s: ExplainerHistoryState = initialState;
+    for (let i = 0; i < MAX_ENTRIES; i++) {
+      s = reduce(s, { type: 'NEW_CONVERSATION' });
+      const id = s.entries[s.entries.length - 1].id;
+      s = reduce(s, {
+        type: 'CONVERSATION_APPEND_USER',
+        entryId: id,
+        userMessage: { id: `u${i}`, role: 'user', content: 'hi', createdAt: i },
+        assistantMessageId: `a${i}`,
+      });
+    }
+    expect(s.entries).toHaveLength(MAX_ENTRIES);
+    expect(s.entries.every((e) => e.kind === 'conversation' && e.isStreaming)).toBe(true);
+    const next = reduce(s, { type: 'NEW_CONVERSATION' });
+    expect(next.entries).toHaveLength(MAX_ENTRIES + 1);
+  });
+
+  it('NEW_CONVERSATION evicts a non-streaming conversation when all entries are conversations', () => {
+    let s: ExplainerHistoryState = reduce(initialState, { type: 'NEW_CONVERSATION' });
+    const idleId = s.entries[0].id;
+    for (let i = 0; i < MAX_ENTRIES - 1; i++) {
+      s = reduce(s, { type: 'NEW_CONVERSATION' });
+      const id = s.entries[s.entries.length - 1].id;
+      s = reduce(s, {
+        type: 'CONVERSATION_APPEND_USER',
+        entryId: id,
+        userMessage: { id: `u${i}`, role: 'user', content: 'hi', createdAt: i },
+        assistantMessageId: `a${i}`,
+      });
+    }
+    expect(s.entries).toHaveLength(MAX_ENTRIES);
+    expect(s.entries.every((e) => e.kind === 'conversation')).toBe(true);
+    const next = reduce(s, { type: 'NEW_CONVERSATION' });
+    expect(next.entries).toHaveLength(MAX_ENTRIES);
+    expect(next.entries.some((e) => e.id === idleId)).toBe(false);
   });
 });
 

@@ -3,9 +3,19 @@ import { generateId, isBrowser } from '../lib/browser';
 import {
   EMPTY_LLM_CONFIG,
   LLM_CONFIG_STORAGE_KEY,
+  isLocalGemmaEndpoint,
   type CustomEndpoint,
   type LLMConfig,
 } from '../types/llm';
+
+export function isLLMUnconfigured(config: LLMConfig, ready: boolean): boolean {
+  if (!ready) return false;
+  const ep = config.activeEndpoint;
+  if (!ep) return true;
+  if (!isLocalGemmaEndpoint(ep) && !config.apiKeys[ep]) return true;
+  if (!config.models[ep]) return true;
+  return false;
+}
 
 type StoredLLMConfig = Omit<LLMConfig, 'models' | 'thinkingEnabled'> & {
   models?: Record<string, string>;
