@@ -5,6 +5,12 @@
  * and we deliberately match only that exact open marker — `<|channel>other\n`
  * etc. is treated as plain body text.
  *
+ * In `outside` mode we also recognise a bare `<channel|>` and swallow it
+ * silently. The model sometimes emits reasoning + a stray close marker even
+ * when the prompt's thought channel was already closed (thinking disabled);
+ * the leading prose comes through as plain body, but the tag itself would
+ * otherwise leak into the rendered message.
+ *
  * The splitter returns an ordered list of events per feed so the caller can
  * faithfully reconstruct the original sequence (multiple opens/closes within
  * a single feed are interleaved correctly with body and thought chunks).
@@ -55,21 +61,36 @@ export function feedSplitter(state: SplitterState, delta: string): SplitterEvent
   // safely can given the holdback for the active marker, then exits.
   while (true) {
     if (state.mode === 'outside') {
-      const idx = state.buffer.indexOf(THOUGHT_OPEN);
-      if (idx !== -1) {
-        pushText(events, 'body', state.buffer.slice(0, idx));
-        state.buffer = state.buffer.slice(idx + THOUGHT_OPEN.length);
+      const openIdx = state.buffer.indexOf(THOUGHT_OPEN);
+      const closeIdx = state.buffer.indexOf(THOUGHT_CLOSE);
+      const useOpen =
+        openIdx !== -1 && (closeIdx === -1 || openIdx < closeIdx);
+      const useClose = !useOpen && closeIdx !== -1;
+      if (useOpen) {
+        pushText(events, 'body', state.buffer.slice(0, openIdx));
+        state.buffer = state.buffer.slice(openIdx + THOUGHT_OPEN.length);
         state.mode = 'in-thought';
         events.push({ kind: 'open' });
         continue;
       }
-      const holdback = THOUGHT_OPEN.length - 1;
+      if (useClose) {
+        // Stray close marker — model emitted `<channel|>` without an open.
+        // Swallow it; preceding text stays as body.
+        pushText(events, 'body', state.buffer.slice(0, closeIdx));
+        state.buffer = state.buffer.slice(closeIdx + THOUGHT_CLOSE.length);
+        continue;
+      }
+      const holdback = Math.max(THOUGHT_OPEN.length, THOUGHT_CLOSE.length) - 1;
       const safeLen = Math.max(0, state.buffer.length - holdback);
       pushText(events, 'body', state.buffer.slice(0, safeLen));
       state.buffer = state.buffer.slice(safeLen);
-      // Release any retained suffix that cannot be a prefix of THOUGHT_OPEN.
+      // Release any retained suffix that cannot be a prefix of either marker.
       let kept = state.buffer;
-      while (kept.length > 0 && !THOUGHT_OPEN.startsWith(kept)) {
+      while (
+        kept.length > 0 &&
+        !THOUGHT_OPEN.startsWith(kept) &&
+        !THOUGHT_CLOSE.startsWith(kept)
+      ) {
         pushText(events, 'body', kept[0]);
         kept = kept.slice(1);
       }

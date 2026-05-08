@@ -277,6 +277,27 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
     window.addEventListener('resize', recompute);
     window.addEventListener('scroll', recompute, true);
 
+    // CSS transitions on transform/inset properties move a cutout's
+    // bounding rect without firing ResizeObserver (size-invariant) or the
+    // MutationObserver (no DOM change). Without this, an overlay that
+    // slides in (e.g. the Sourcecode drawer's translateX transition) has
+    // its rect stuck at the pre-transition position. Recomputing on
+    // transitionend re-reads getBoundingClientRect once the panel settles.
+    const onTransitionEnd = (e: TransitionEvent): void => {
+      const p = e.propertyName;
+      if (
+        p === 'transform' ||
+        p === 'left' ||
+        p === 'top' ||
+        p === 'right' ||
+        p === 'bottom' ||
+        p === 'inset'
+      ) {
+        recompute();
+      }
+    };
+    document.addEventListener('transitionend', onTransitionEnd, true);
+
     return () => {
       cancelled = true;
       if (tweenRaf.current !== null) {
@@ -285,6 +306,7 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
       }
       window.removeEventListener('resize', recompute);
       window.removeEventListener('scroll', recompute, true);
+      document.removeEventListener('transitionend', onTransitionEnd, true);
       ro?.disconnect();
       mo?.disconnect();
     };

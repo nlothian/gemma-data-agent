@@ -73,15 +73,183 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+function placeOnSide(
+  side: 'right' | 'below' | 'left' | 'above',
+  u: UnionRect,
+  cardW: number,
+  cardH: number,
+  vw: number,
+  vh: number,
+): { left: number; top: number } {
+  const margin = CARD_GAP;
+  const safe = 8;
+  if (side === 'right') {
+    return {
+      left: u.x + u.w + margin,
+      top: clamp(u.y + u.h / 2 - cardH / 2, safe, vh - cardH - safe),
+    };
+  }
+  if (side === 'below') {
+    return {
+      top: u.y + u.h + margin,
+      left: clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe),
+    };
+  }
+  if (side === 'left') {
+    return {
+      left: u.x - margin - cardW,
+      top: clamp(u.y + u.h / 2 - cardH / 2, safe, vh - cardH - safe),
+    };
+  }
+  // above
+  return {
+    top: u.y - margin - cardH,
+    left: clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe),
+  };
+}
+
+// Push the card horizontally / vertically out of any blocker rect that
+// overlaps it on the cross-axis. Used when a stage forces a placement and
+// some cutouts (e.g. the Sourcecode drawer) cover the chosen side.
+function clampOutsideBlockers(
+  side: 'right' | 'below' | 'left' | 'above',
+  pos: { left: number; top: number },
+  cardW: number,
+  cardH: number,
+  blockers: ReadonlyArray<{ x: number; y: number; w: number; h: number }>,
+  vw: number,
+  vh: number,
+): { left: number; top: number } {
+  const safe = 8;
+  let { left, top } = pos;
+  const horizontal = side === 'above' || side === 'below';
+  for (const b of blockers) {
+    const cardL = left;
+    const cardR = left + cardW;
+    const cardT = top;
+    const cardB = top + cardH;
+    const overlapX = cardR > b.x && cardL < b.x + b.w;
+    const overlapY = cardB > b.y && cardT < b.y + b.h;
+    if (!overlapX || !overlapY) continue;
+    if (horizontal) {
+      const pushLeft = b.x - cardW - safe;
+      const pushRight = b.x + b.w + safe;
+      const fitsLeft = pushLeft >= safe;
+      const fitsRight = pushRight + cardW <= vw - safe;
+      const useLeft = fitsLeft && (!fitsRight || Math.abs(pushLeft - left) <= Math.abs(pushRight - left));
+      left = useLeft ? pushLeft : fitsRight ? pushRight : Math.max(safe, pushLeft);
+    } else {
+      const pushUp = b.y - cardH - safe;
+      const pushDown = b.y + b.h + safe;
+      const fitsUp = pushUp >= safe;
+      const fitsDown = pushDown + cardH <= vh - safe;
+      const useUp = fitsUp && (!fitsDown || Math.abs(pushUp - top) <= Math.abs(pushDown - top));
+      top = useUp ? pushUp : fitsDown ? pushDown : Math.max(safe, pushUp);
+    }
+  }
+  return { left, top };
+}
+
+function rectsOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// Attempt to place the card on `side`; return null if it can't fit on screen
+// without overlapping the anchor or any blocker. Tries the natural
+// placement first, then runs the blocker-clamp, and re-verifies the result.
+function tryPlace(
+  side: 'right' | 'below' | 'left' | 'above',
+  u: UnionRect,
+  cardW: number,
+  cardH: number,
+  vw: number,
+  vh: number,
+  blockers?: ReadonlyArray<{ x: number; y: number; w: number; h: number }>,
+): { left: number; top: number } | null {
+  const safe = 8;
+  const placed = placeOnSide(side, u, cardW, cardH, vw, vh);
+  if (placed.top < safe || placed.top + cardH > vh - safe) return null;
+  if (placed.left < safe || placed.left + cardW > vw - safe) return null;
+  const adjusted = blockers && blockers.length > 0
+    ? clampOutsideBlockers(side, placed, cardW, cardH, blockers, vw, vh)
+    : placed;
+  if (adjusted.top < safe || adjusted.top + cardH > vh - safe) return null;
+  if (adjusted.left < safe || adjusted.left + cardW > vw - safe) return null;
+  const cardRect = { x: adjusted.left, y: adjusted.top, w: cardW, h: cardH };
+  const anchorRect = { x: u.x, y: u.y, w: u.w, h: u.h };
+  if (rectsOverlap(cardRect, anchorRect)) return null;
+  if (blockers) {
+    for (const b of blockers) {
+      if (rectsOverlap(cardRect, b)) return null;
+    }
+  }
+  return adjusted;
+}
+
+const OPPOSITE_SIDE: Record<'right' | 'below' | 'left' | 'above', 'right' | 'below' | 'left' | 'above'> = {
+  right: 'left',
+  left: 'right',
+  above: 'below',
+  below: 'above',
+};
+
 function chooseSide(
   u: UnionRect,
   cardW: number,
   cardH: number,
   vw: number,
   vh: number,
+  forcedSide?: 'right' | 'below' | 'left' | 'above',
+  blockers?: ReadonlyArray<{ x: number; y: number; w: number; h: number }>,
 ): CardPosition {
   const margin = CARD_GAP;
   const safe = 8;
+
+  if (forcedSide) {
+    // Try the requested side, then its opposite, then the remaining two —
+    // in that order — and pick the first one that actually fits the card on
+    // screen without overlapping the anchor *or* any blocker. If none fit,
+    // fall back to a corner pin appropriate to the requested side (e.g.
+    // 'above' → top-left, with the left clamped clear of any blocker on the
+    // right). This keeps the card visible even when every side is squeezed.
+    const opposite = OPPOSITE_SIDE[forcedSide];
+    const candidates = [
+      forcedSide,
+      opposite,
+      ...(['right', 'below', 'left', 'above'] as const).filter(
+        (s) => s !== forcedSide && s !== opposite,
+      ),
+    ];
+    for (const side of candidates) {
+      const result = tryPlace(side, u, cardW, cardH, vw, vh, blockers);
+      if (result) {
+        return { left: result.left, top: result.top, side };
+      }
+    }
+    // No side fits — pin to the corner closest to the requested side. For
+    // 'above'/'below' that's a top-left / bottom-left pin (assumes blockers
+    // come from the right, which matches the Sourcecode drawer pattern).
+    let pinLeft = safe;
+    let pinTop = safe;
+    if (forcedSide === 'below') pinTop = Math.max(safe, vh - cardH - safe);
+    if (forcedSide === 'right') pinLeft = Math.max(safe, vw - cardW - safe);
+    if (blockers && blockers.length > 0) {
+      // Push the pin clear of any horizontal-overlap blocker.
+      for (const b of blockers) {
+        const cardR = pinLeft + cardW;
+        const cardB = pinTop + cardH;
+        const overlapY = cardB > b.y && pinTop < b.y + b.h;
+        if (!overlapY) continue;
+        if (cardR > b.x && pinLeft < b.x) {
+          pinLeft = Math.max(safe, b.x - cardW - safe);
+        }
+      }
+    }
+    return { left: pinLeft, top: pinTop, side: forcedSide };
+  }
 
   const rightFreeW = vw - (u.x + u.w) - margin - safe;
   const leftFreeW = u.x - margin - safe;
@@ -94,24 +262,16 @@ function chooseSide(
   const aboveOk = aboveFreeH >= MIN_FREE_H && vw - 2 * safe >= cardW;
 
   if (rightOk) {
-    const left = u.x + u.w + margin;
-    const top = clamp(u.y + u.h / 2 - cardH / 2, safe, vh - cardH - safe);
-    return { left, top, side: 'right' };
+    return { ...placeOnSide('right', u, cardW, cardH, vw, vh), side: 'right' };
   }
   if (belowOk) {
-    const top = u.y + u.h + margin;
-    const left = clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe);
-    return { left, top, side: 'below' };
+    return { ...placeOnSide('below', u, cardW, cardH, vw, vh), side: 'below' };
   }
   if (leftOk) {
-    const left = u.x - margin - cardW;
-    const top = clamp(u.y + u.h / 2 - cardH / 2, safe, vh - cardH - safe);
-    return { left, top, side: 'left' };
+    return { ...placeOnSide('left', u, cardW, cardH, vw, vh), side: 'left' };
   }
   if (aboveOk) {
-    const top = u.y - margin - cardH;
-    const left = clamp(u.x + u.w / 2 - cardW / 2, safe, vw - cardW - safe);
-    return { left, top, side: 'above' };
+    return { ...placeOnSide('above', u, cardW, cardH, vw, vh), side: 'above' };
   }
   // Fallback — centred at the bottom of the viewport.
   return {
@@ -238,16 +398,25 @@ export default function TourOverlay(): JSX.Element | null {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const cardH = cardActualHeight && cardActualHeight > 0 ? cardActualHeight : cardSize.estHeight;
-    const u = unionOf(layoutRects);
-    if (!u) {
+    let anchor: UnionRect | null = unionOf(layoutRects);
+    let blockers: SpotlightRect[] = [];
+    if (stage?.placementAnchor) {
+      const idx = stage.cutouts.indexOf(stage.placementAnchor);
+      const anchorRect = idx >= 0 ? layoutRects[idx] : undefined;
+      if (anchorRect) {
+        anchor = { x: anchorRect.x, y: anchorRect.y, w: anchorRect.w, h: anchorRect.h };
+        blockers = layoutRects.filter((_, i) => i !== idx);
+      }
+    }
+    if (!anchor) {
       return {
         left: clamp(vw / 2 - cardSize.width / 2, 8, vw - cardSize.width - 8),
         top: clamp((vh - cardH) / 2, 8, vh - cardH - 8),
         side: 'centred-bottom',
       };
     }
-    return chooseSide(u, cardSize.width, cardH, vw, vh);
-  }, [cardSize, layoutRects, cardActualHeight]);
+    return chooseSide(anchor, cardSize.width, cardH, vw, vh, stage?.placement, blockers);
+  }, [cardSize, layoutRects, cardActualHeight, stage]);
 
   if (!snapshot.running || !stage) return null;
 

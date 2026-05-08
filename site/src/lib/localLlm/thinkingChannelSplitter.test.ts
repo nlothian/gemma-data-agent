@@ -111,12 +111,30 @@ describe('thinkingChannelSplitter', () => {
     ]);
   });
 
-  it('6. <channel|> appears outside a thought — treated as body text', () => {
+  it('6. stray <channel|> outside a thought — swallowed silently', () => {
+    // The model sometimes emits reasoning + a close marker even when the
+    // prompt's thought channel was already closed (thinking disabled). The
+    // surrounding prose comes through as body; the marker itself is dropped.
     const result = runAll(['a<channel|>b'], 'outside');
-    expect(result.body).toBe('a<channel|>b');
+    expect(result.body).toBe('ab');
     expect(result.thought).toBe('');
     expect(result.opens).toBe(0);
     expect(result.closes).toBe(0);
+  });
+
+  it('6b. stray <channel|> split across deltas — held back, then swallowed', () => {
+    const state = createSplitterState('outside');
+    const ev1 = feedSplitter(state, 'a<chan');
+    // "<chan" is a possible prefix of <channel|>, must be held back.
+    const body1 = ev1.filter((e) => e.kind === 'body').map((e) => e.text).join('');
+    expect(body1).toBe('a');
+    const ev2 = feedSplitter(state, 'nel|>b');
+    const tail = flushSplitter(state);
+    const all = [...ev1, ...ev2, ...tail];
+    const body = all.filter((e) => e.kind === 'body').map((e) => e.text).join('');
+    expect(body).toBe('ab');
+    expect(all.some((e) => e.kind === 'close')).toBe(false);
+    expect(all.some((e) => e.kind === 'open')).toBe(false);
   });
 
   it('7. <|channel> prefix that is not thought\\n — released as body', () => {

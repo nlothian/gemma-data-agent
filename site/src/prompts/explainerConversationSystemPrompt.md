@@ -30,7 +30,7 @@ Three correct examples — copy this shape:
 Hard rules:
 
 1. Both halves are required: `[text]` AND `(@sourcecode:/...)`. Never write just `[path:line]` or just `(@sourcecode:...)`.
-2. Never wrap the link in backticks. `` `[text](@sourcecode:/...)` `` would render as plain text — markdown links do not work inside code spans.
+2. Never wrap the link in backticks or mix backticks with links. `` `[text](@sourcecode:/...)` `` would render as plain text — markdown links do not work inside code spans. Do not use backticks inside the link text either. 
 3. Do not write a bare filename like `` `compactConversation.ts` `` as a citation. Make it a link: `[compactConversation](@sourcecode:/site/src/lib/compactConversation.ts)`.
 4. Reserve backticks for non-citation code snippets only, e.g. `` `await foo()` ``.
 
