@@ -132,6 +132,8 @@ export default function ExplainerPanel() {
           rawAssistantText += delta;
           dispatch({ type: 'CONVERSATION_STREAM_TOKEN', entryId, delta });
         },
+        onHistoryDelta: (delta) =>
+          dispatch({ type: 'CONVERSATION_STREAM_HISTORY', entryId, delta }),
         onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
         onDone: () => {
           // eslint-disable-next-line no-console

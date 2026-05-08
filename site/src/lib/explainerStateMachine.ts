@@ -72,6 +72,7 @@ export type ExplainerEvent =
       assistantMessageId: string;
     }
   | { type: 'CONVERSATION_STREAM_TOKEN'; entryId: string; delta: string }
+  | { type: 'CONVERSATION_STREAM_HISTORY'; entryId: string; delta: string }
   | { type: 'CONVERSATION_STREAM_DONE'; entryId: string }
   | { type: 'CONVERSATION_STREAM_ERROR'; entryId: string; message: string };
 
@@ -325,6 +326,19 @@ export function reduce(
         if (last.role !== 'assistant') return entry;
         const messages = entry.messages.slice();
         messages[messages.length - 1] = { ...last, content: last.content + event.delta };
+        return { ...entry, messages };
+      });
+
+    case 'CONVERSATION_STREAM_HISTORY':
+      return patchConversation(state, event.entryId, (entry) => {
+        if (entry.messages.length === 0) return entry;
+        const last = entry.messages[entry.messages.length - 1];
+        if (last.role !== 'assistant') return entry;
+        const messages = entry.messages.slice();
+        messages[messages.length - 1] = {
+          ...last,
+          historyContent: (last.historyContent ?? '') + event.delta,
+        };
         return { ...entry, messages };
       });
 
