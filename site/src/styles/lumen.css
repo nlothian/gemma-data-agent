@@ -1700,6 +1700,17 @@ body.exec-resizing {
   background: var(--mist);
 }
 
+.exec-path-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--steel);
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .exec-play-btn {
   display: inline-flex;
   align-items: center;

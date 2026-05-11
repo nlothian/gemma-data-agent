@@ -20,6 +20,17 @@ import { isBrowser } from './browser';
 import reactUmdUrl from '../../node_modules/react/umd/react.development.js?url';
 import reactDomUmdUrl from '../../node_modules/react-dom/umd/react-dom.development.js?url';
 
+// Graphics library UMDs. Each `<script src>` installs a window global the
+// `require` shim below maps back to its npm specifier. See
+// `reactSandboxLibs.ts` for the ESM-only libs (three, pixi, simplex-noise,
+// react-is, tsparticles engine), which load through a separate module script.
+import d3UmdUrl from '../../node_modules/d3/dist/d3.min.js?url';
+import framerMotionUmdUrl from '../../node_modules/framer-motion/dist/framer-motion.js?url';
+import mermaidUmdUrl from '../../node_modules/mermaid/dist/mermaid.min.js?url';
+import matterUmdUrl from '../../node_modules/matter-js/build/matter.min.js?url';
+import rechartsUmdUrl from '../../node_modules/recharts/umd/Recharts.js?url';
+import sandboxLibsUrl from './reactSandboxLibs.ts?url';
+
 export interface ReactCompileError {
   message: string;
   line?: number;
@@ -39,7 +50,12 @@ export type RunReactResult =
       runtimeErrors: ReactRuntimeError[];
     };
 
-const RENDER_WAIT_MS = 750;
+// After the iframe signals 'rendered', wait this long before resolving so
+// effect-time throws and unhandled rejections still land in the error list.
+const POST_RENDER_WAIT_MS = 750;
+// Hard cap for the whole run. Libraries (three, pixi, mermaid, …) take a
+// noticeable amount of time to load on first run; after that they're cached.
+const RUN_TIMEOUT_MS = 8000;
 
 let mountElement: HTMLElement | null = null;
 let mountWaiters: Array<(el: HTMLElement) => void> = [];
@@ -125,7 +141,18 @@ function escapeForScript(s: string): string {
   return s.replace(/<\/script/gi, '<\\/script');
 }
 
-function buildSrcdoc(userJs: string, reactUrl: string, reactDomUrl: string): string {
+interface SandboxLibUrls {
+  react: string;
+  reactDom: string;
+  d3: string;
+  framerMotion: string;
+  mermaid: string;
+  matter: string;
+  recharts: string;
+  libsModule: string;
+}
+
+function buildSrcdoc(userJs: string, urls: SandboxLibUrls): string {
   const safeUserJs = escapeForScript(userJs);
   return `<!DOCTYPE html>
 <html>
@@ -138,8 +165,17 @@ function buildSrcdoc(userJs: string, reactUrl: string, reactDomUrl: string): str
 </head>
 <body>
 <div id="root"></div>
-<script src="${reactUrl}"></script>
-<script src="${reactDomUrl}"></script>
+
+<!-- UMDs that install their own window globals at parse time. Order matters:
+     React first (other libs key off window.React); framer-motion last because
+     its UMD reads window.React when it executes. -->
+<script src="${urls.react}"></script>
+<script src="${urls.reactDom}"></script>
+<script src="${urls.d3}"></script>
+<script src="${urls.mermaid}"></script>
+<script src="${urls.matter}"></script>
+<script src="${urls.framerMotion}"></script>
+
 <script>
 (function(){
   var R = window.React, RD = window.ReactDOM;
@@ -151,13 +187,33 @@ function buildSrcdoc(userJs: string, reactUrl: string, reactDomUrl: string): str
   window.useReducer = R.useReducer;
   window.useContext = R.useContext;
 
-  // Shim CommonJS require for the handful of specifiers the agent commonly
-  // emits via \`import React from 'react'\` etc. Anything else throws so the
-  // failure surfaces in the runtime-error list with a useful message.
+  // require() shim. User code is compiled to CommonJS so every \`import ... from 'X'\`
+  // becomes \`require('X')\`. We map each known specifier to the global the
+  // corresponding UMD/ESM bundle installs, and throw a clear error for anything
+  // unknown so the failure shows up in the runtime-error list.
+  function lookup(spec){
+    switch (spec) {
+      case 'react': return R;
+      case 'react-dom':
+      case 'react-dom/client': return RD;
+      case 'd3': return window.d3;
+      case 'three': return window.THREE;
+      case 'pixi.js': return window.PIXI;
+      case 'simplex-noise': return window.SimplexNoise;
+      case 'framer-motion': return window.Motion;
+      case 'mermaid': return window.mermaid;
+      case 'matter-js': return window.Matter;
+      case 'recharts': return window.Recharts;
+      case 'react-is': return window.ReactIs;
+      case 'tsparticles':
+      case '@tsparticles/engine': return { tsParticles: window.tsParticles, loadFull: window.loadFull };
+      default: return null;
+    }
+  }
   window.require = function(spec){
-    if (spec === 'react') return R;
-    if (spec === 'react-dom' || spec === 'react-dom/client') return RD;
-    throw new Error('Module "' + spec + '" is not available in the React sandbox. Only "react" and "react-dom" can be imported.');
+    var mod = lookup(spec);
+    if (mod) return mod;
+    throw new Error('Module "' + spec + '" is not available in the React sandbox.');
   };
 
   function send(type, payload) {
@@ -190,30 +246,67 @@ function buildSrcdoc(userJs: string, reactUrl: string, reactDomUrl: string): str
   };
   window.__Boundary = Boundary;
 
+  // CJS user code expects \`module\`, \`exports\`, \`require\` as globals. We
+  // *don't* attach them to \`window\` yet — UMDs that load after this script
+  // (notably recharts) sniff \`typeof exports\` and take a CJS branch if it
+  // exists, which would set \`module.exports = Recharts\` instead of
+  // \`window.Recharts\` and break the require shim. The window properties are
+  // installed in \`__runUser\` below, just before the user snippet runs.
+  window.__userSource = ${JSON.stringify(safeUserJs)} +
+    '\\n;try{if(typeof App!=="undefined")window.module.exports.App=App;}catch(e){}';
+
+  window.__runUser = function(){
+    try {
+      window.module = { exports: {} };
+      window.exports = window.module.exports;
+      // Injecting via textContent + appendChild runs synchronously as a
+      // top-level classic script — parse errors fire window.onerror (already
+      // wired above) instead of taking down the orchestrator.
+      var s = document.createElement('script');
+      s.textContent = window.__userSource;
+      document.body.appendChild(s);
+
+      var App = window.module.exports.App ||
+        ((typeof window.App !== 'undefined') ? window.App :
+         (typeof window.module.exports === 'function') ? window.module.exports :
+         (window.module.exports && typeof window.module.exports.default === 'function') ? window.module.exports.default :
+         null);
+      if (!App) {
+        window.__sendError({ message: 'Snippet must define a component named \`App\`.' });
+        return;
+      }
+      var root = window.ReactDOM.createRoot(document.getElementById('root'));
+      root.render(window.React.createElement(window.__Boundary, null, window.React.createElement(App)));
+      window.__sendRendered();
+    } catch (e) {
+      window.__sendError({ message: (e && e.message) || String(e), stack: e && e.stack });
+    }
+  };
+
   send('ready', null);
 })();
 </script>
-<script>
-try {
-  var module = { exports: {} };
-  var exports = module.exports;
-${safeUserJs}
-;
-  var __Component =
-    (typeof App !== 'undefined') ? App :
-    (typeof module.exports === 'function') ? module.exports :
-    (module.exports && typeof module.exports.default === 'function') ? module.exports.default :
-    null;
-  if (!__Component) {
-    window.__sendError({ message: 'Snippet must define a component named \`App\`.' });
-  } else {
-    var __root = window.ReactDOM.createRoot(document.getElementById('root'));
-    __root.render(window.React.createElement(window.__Boundary, null, window.React.createElement(__Component)));
-    window.__sendRendered();
+
+<!-- Module-bundled libraries (three, pixi, simplex-noise, react-is,
+     tsparticles engine). The module imports each, sets the global, then
+     dispatches \`__sandboxLibsReady\`. We then load the recharts UMD (which
+     reads window.React/ReactDOM/ReactIs) and finally run the user code. -->
+<script type="module">
+(async function(){
+  try {
+    await import(${JSON.stringify(urls.libsModule)});
+    await new Promise(function(resolve, reject){
+      var s = document.createElement('script');
+      s.src = ${JSON.stringify(urls.recharts)};
+      s.onload = resolve;
+      s.onerror = function(){ reject(new Error('Failed to load recharts')); };
+      document.head.appendChild(s);
+    });
+    window.__runUser();
+  } catch (e) {
+    window.__sendError({ message: 'Sandbox library load failed: ' + ((e && e.message) || String(e)), stack: e && e.stack });
   }
-} catch (e) {
-  window.__sendError({ message: (e && e.message) || String(e), stack: e && e.stack });
-}
+})();
 </script>
 </body>
 </html>`;
@@ -233,6 +326,7 @@ async function runInIframe(js: string, mountEl: HTMLElement): Promise<RunInIfram
   iframe.style.cssText = 'width:100%;height:100%;border:0;background:#fff;display:block;';
 
   const errors: ReactRuntimeError[] = [];
+  let renderedAt: number | null = null;
 
   const onMessage = (ev: MessageEvent): void => {
     if (ev.source !== iframe.contentWindow) return;
@@ -240,19 +334,42 @@ async function runInIframe(js: string, mountEl: HTMLElement): Promise<RunInIfram
     if (!data || data.source !== 'react-sandbox') return;
     if (data.type === 'runtime-error' && data.payload) {
       errors.push(data.payload as ReactRuntimeError);
+    } else if (data.type === 'rendered' && renderedAt === null) {
+      renderedAt = Date.now();
     }
   };
   window.addEventListener('message', onMessage);
 
-  const srcdoc = buildSrcdoc(
-    js,
-    absoluteUrl(reactUmdUrl),
-    absoluteUrl(reactDomUmdUrl),
-  );
+  const srcdoc = buildSrcdoc(js, {
+    react: absoluteUrl(reactUmdUrl),
+    reactDom: absoluteUrl(reactDomUmdUrl),
+    d3: absoluteUrl(d3UmdUrl),
+    framerMotion: absoluteUrl(framerMotionUmdUrl),
+    mermaid: absoluteUrl(mermaidUmdUrl),
+    matter: absoluteUrl(matterUmdUrl),
+    recharts: absoluteUrl(rechartsUmdUrl),
+    libsModule: absoluteUrl(sandboxLibsUrl),
+  });
   iframe.srcdoc = srcdoc;
   mountEl.appendChild(iframe);
 
-  await new Promise<void>((resolve) => setTimeout(resolve, RENDER_WAIT_MS));
+  // Wait for the iframe to either signal 'rendered' (then a short post-render
+  // window for effect-time errors) or hit the hard timeout.
+  const startedAt = Date.now();
+  await new Promise<void>((resolve) => {
+    const tick = (): void => {
+      if (Date.now() - startedAt >= RUN_TIMEOUT_MS) {
+        resolve();
+        return;
+      }
+      if (renderedAt !== null && Date.now() - renderedAt >= POST_RENDER_WAIT_MS) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
 
   window.removeEventListener('message', onMessage);
   // Drop the cross-origin "Script error." that browsers report alongside any

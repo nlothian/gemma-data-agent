@@ -26,6 +26,7 @@ const subAgentsPipeline: TourStage = {
           runPython: true,
           runReact: false,
           runSubAgent: true,
+          fileTools: true,
         },
       },
     },

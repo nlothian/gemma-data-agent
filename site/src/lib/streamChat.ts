@@ -183,7 +183,7 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
       conv.push({ role: 'user', content: resultBlocks });
     }
 
-    emit('\n\n[Reached max tool iterations.]');
+    emit('\n\nReached max tool iterations. Say Continue to keep going');
     onDone(accumulatedText);
   } catch (err) {
     if (isAbortError(err)) {

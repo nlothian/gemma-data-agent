@@ -2,12 +2,20 @@
 
 Use `RunSQL` for filtering, aggregating, joining, or any analysis you can express in SQL. Don't tell the user to run a SQL query — call `RunSQL` instead.
 
-## RunSQL(sql, register_as?)
+## RunSQL(path, register_as?)
 
-Executes SQL against an in-browser DuckDB-WASM database.
+Executes SQL against an in-browser DuckDB-WASM database. The query is loaded from a `.sql` file at `path` under `/scratchpad` or `/input`.
 
-- On success: `{ columns: [{name, type}], sample_rows: unknown[][], total_rows: number, registered_as: string }`.
-- On failure: `{ error: string }`.
+**Always write the query first**, then run it:
+
+```
+→ WriteLines({"path":"/scratchpad/by_region.sql","from":1,"to":0,"content":"SELECT region, SUM(amount) FROM sales GROUP BY region;\n"})
+← Created /scratchpad/by_region.sql — 1 lines total.
+→ RunSQL({"path":"/scratchpad/by_region.sql"})
+```
+
+- On success: `{ columns: [{name, type}], sample_rows: unknown[][], total_rows: number, registered_as: string, path: string }`.
+- On failure: `{ error: string, path: string }`. To self-correct, `ReadLines(path, …)` to re-inspect the query, then `WriteLines(path, …)` to fix.
 - **You only see 3 sample rows.** The user's UI panel shows up to 1000 rows; you don't. Use `total_rows` to decide whether `sample_rows` is enough, and switch to aggregations or Python for anything that needs the full result.
 - **The full Arrow result is always at `arrow_inputs[registered_as]`** — `registered_as` is always `"_last_sql_result"`. To work with all rows in Python, read `pa.ipc.open_stream(arrow_inputs["_last_sql_result"]).read_all()`. It is overwritten on the next `RunSQL` call.
 - Long string cells in `sample_rows` are truncated with a `[truncated, full=N chars]` suffix so the schema stays readable. To see a full cell, query that row in Python from `_last_sql_result`.

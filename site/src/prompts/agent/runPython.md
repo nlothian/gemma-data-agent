@@ -2,12 +2,21 @@
 
 Use `RunPython` for plotting, statistics, ML, text/PDF parsing, or anything you'd reach for Python to do. Don't tell the user to run Python — call `RunPython` instead.
 
-## RunPython(code)
+## RunPython(path)
 
-Executes Python in Pyodide.
+Executes Python in Pyodide. The code is loaded from a `.py` file at `path` under `/scratchpad` or `/input`.
 
-- On success: `{ result, stdout, stderr }` where `result` is the str() of the last expression.
-- On failure: `{ error, stdout, stderr }`.
+**Always write the code first**, then run it:
+
+```
+→ WriteLines({"path":"/scratchpad/analysis.py","from":1,"to":0,"content":"import pandas as pd\nprint(1 + 1)\n"})
+← Created /scratchpad/analysis.py — 2 lines total.
+→ RunPython({"path":"/scratchpad/analysis.py"})
+← { "result": "", "stdout": "2\n", "stderr": "", "path": "/scratchpad/analysis.py" }
+```
+
+- On success: `{ result, stdout, stderr, path }` where `result` is the str() of the last expression.
+- On failure: `{ error, stdout, stderr, path }`. To self-correct, `ReadLines(path, …)` to re-inspect the file, then `WriteLines(path, …)` to fix, then re-run.
 - `loadPackagesFromImports` runs first, so `import pandas as pd` and `import pyarrow as pa` work out of the box (first import is slow).
 
 Read tabular data from `arrow_inputs[name]` (Arrow IPC bytes — decode with `pa.ipc.open_stream(arrow_inputs[name]).read_all()`). Read non-tabular data from `arrow_inputs[name]` as raw bytes and decode per format (`TextDecoder`, `pypdf`, etc.).
@@ -20,7 +29,7 @@ Read tabular data from `arrow_inputs[name]` (Arrow IPC bytes — decode with `pa
 - `import duckdb` / `duckdb.connect` → no driver in the worker.
 - `import sqlite3` / SQLAlchemy → same.
 
-If you need a query result in Python, either the table was already loaded by `LoadData` (read `arrow_inputs["<table>"]`) or call `RunSQL("SELECT ...", register_as="<name>")` first and then read `arrow_inputs["<name>"]`.
+If you need a query result in Python, either the table was already loaded by `LoadData` (read `arrow_inputs["<table>"]`) or call `RunSQL` first (with `register_as="<name>"`) and then read `arrow_inputs["<name>"]`.
 
 ## Plotting
 

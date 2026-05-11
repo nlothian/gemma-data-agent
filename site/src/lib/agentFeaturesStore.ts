@@ -5,17 +5,9 @@
  * islands, so they synchronise through this store rather than props.
  */
 
-import type { AgentPromptFeatures } from './agentTools';
+import { DEFAULT_FEATURES, type AgentPromptFeatures } from './agentTools';
 
 const STORAGE_KEY = 'agentFeatures';
-
-const DEFAULT_FEATURES: AgentPromptFeatures = {
-  dataLoading: true,
-  runSql: true,
-  runPython: true,
-  runReact: true,
-  runSubAgent: true,
-};
 
 function load(): AgentPromptFeatures {
   if (typeof localStorage === 'undefined') return { ...DEFAULT_FEATURES };
@@ -23,13 +15,7 @@ function load(): AgentPromptFeatures {
   if (!raw) return { ...DEFAULT_FEATURES };
   try {
     const parsed = JSON.parse(raw) as Partial<AgentPromptFeatures>;
-    return {
-      dataLoading: parsed.dataLoading ?? true,
-      runSql: parsed.runSql ?? true,
-      runPython: parsed.runPython ?? true,
-      runReact: parsed.runReact ?? true,
-      runSubAgent: parsed.runSubAgent ?? true,
-    };
+    return { ...DEFAULT_FEATURES, ...parsed };
   } catch {
     return { ...DEFAULT_FEATURES };
   }

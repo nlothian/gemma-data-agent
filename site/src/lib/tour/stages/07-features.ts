@@ -16,6 +16,7 @@ const features: TourStage = {
           runPython: true,
           runReact: true,
           runSubAgent: false,
+          fileTools: true,
         },
       },
     },

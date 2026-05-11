@@ -35,6 +35,8 @@ export type PaneStatus =
 
 export interface PythonPaneState {
   source: string;
+  /** Virtual path of the script being executed, when known. */
+  path?: string;
   status: PaneStatus;
   stdout: string;
   stderr: string;
@@ -55,6 +57,7 @@ export interface PythonPaneState {
 
 export interface SqlPaneState {
   source: string;
+  path?: string;
   status: PaneStatus;
   tabular?: TabularResult;
   errorMessage?: string;
@@ -81,6 +84,7 @@ export interface ReactRuntimeErrorView {
 
 export interface ReactPaneState {
   source: string;
+  path?: string;
   status: PaneStatus;
   compileErrors: ReactCompileErrorView[];
   runtimeErrors: ReactRuntimeErrorView[];
@@ -247,7 +251,11 @@ export function setActiveTab(tab: PaneKind): void {
   setSnapshot({ ...snapshot, activeTab: tab });
 }
 
-export function setPending(kind: 'python' | 'sql' | 'react', source: string): void {
+export function setPending(
+  kind: 'python' | 'sql' | 'react',
+  source: string,
+  path?: string,
+): void {
   if (kind === 'python') {
     revokePythonImages();
     setSnapshot({
@@ -255,6 +263,7 @@ export function setPending(kind: 'python' | 'sql' | 'react', source: string): vo
       activeTab: 'python',
       python: {
         source,
+        path,
         status: 'pending',
         stdout: '',
         stderr: '',
@@ -271,6 +280,7 @@ export function setPending(kind: 'python' | 'sql' | 'react', source: string): vo
       react: {
         ...snapshot.react,
         source,
+        path,
         status: 'pending',
         compileErrors: [],
         runtimeErrors: [],
@@ -283,6 +293,7 @@ export function setPending(kind: 'python' | 'sql' | 'react', source: string): vo
     activeTab: 'sql',
     sql: {
       source,
+      path,
       status: 'pending',
     },
   });

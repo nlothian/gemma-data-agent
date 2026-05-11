@@ -413,7 +413,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       });
     }
 
-    emit('\n\n[Reached max tool iterations.]');
+    emit('\n\nReached max tool iterations. Say Continue to keep going');
     onDone(accumulatedText);
   } catch (err) {
     if (isAbortError(err)) {

@@ -53,7 +53,7 @@ SELECT * FROM foo
 
 Load a tabular or non-tabular data file. The first argument is either a remote URL (contains `://`) or a relative path inside the user's sandbox directory (e.g. `reports/sales.csv`).
 
-For sandbox files, pass the `sourcePath` from `ListInputs` **as-is** — it's a bare relative path. Do NOT add a URI scheme like `sandbox:` or `file://`, and do NOT prepend a leading `/`. The browser's file API rejects names containing `:` and dot-segments (`.`, `..`), so any path-mangling will fail with `Name is not allowed`.
+For sandbox files, pass the `sourcePath` from `ListInputs` **as-is** — it's a bare relative path. Do NOT add a URI scheme like `sandbox:` or `file://`, and do NOT prepend a leading `/`. Note: `LoadData` uses sandbox-relative paths and pre-dates the `/input` virtual root used by `ListFiles`/`ReadLines` — they refer to the same directory but with different addressing. The browser's file API rejects names containing `:` and dot-segments (`.`, `..`), so any path-mangling will fail with `Name is not allowed`.
 
 **Tabular files** (csv, json, parquet, xlsx) are loaded as a DuckDB table named `table_name` AND auto-published to the input registry as Arrow IPC under the same name. After `LoadData("foo.csv", "foo")`, the table is queryable as `foo` and readable in Python via `arrow_inputs["foo"]`.
 

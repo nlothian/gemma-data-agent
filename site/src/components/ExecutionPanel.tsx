@@ -9,7 +9,12 @@ import {
   type PaneStatus,
 } from '../lib/executionPanelStore';
 import * as agentFeatures from '../lib/agentFeaturesStore';
-import { runPython, runReact, runSQL } from '../lib/agentTools';
+import {
+  runPythonAtPath,
+  runReactAtPath,
+  runSQLAtPath,
+} from '../lib/agentTools';
+import { writeFileAt } from '../lib/agentFs';
 import useExecutionPanelHeight, {
   MIN_HEIGHT,
   MAX_HEIGHT,
@@ -33,6 +38,12 @@ import {
 const PYTHON_PLACEHOLDER = '# Awaiting RunPython call';
 const SQL_PLACEHOLDER = '-- Awaiting RunSQL call';
 const REACT_PLACEHOLDER = '// Awaiting RunReact call';
+
+const MANUAL_PATHS = {
+  python: '/scratchpad/manual/python.py',
+  sql: '/scratchpad/manual/sql.sql',
+  react: '/scratchpad/manual/react.tsx',
+} as const;
 
 function deriveSubAgentStatus(
   runs: ReadonlyArray<{ status: 'running' | 'done' | 'error' | 'aborted' }>,
@@ -141,27 +152,39 @@ export default function ExecutionPanel() {
 
   const toggleFold = () => setCodeFolded((v) => !v);
 
+  const activePath =
+    active === 'python' ? snap.python.path
+      : active === 'sql' ? snap.sql.path
+      : active === 'react' ? snap.react.path
+      : undefined;
+
   const handleRun = useCallback(async () => {
     if (active === 'python') {
       const code = editedPython ?? snap.python.source;
       if (code.length === 0 || pythonBusy) return;
-      panel.setPending('python', code);
+      const path = MANUAL_PATHS.python;
+      panel.setPending('python', code, path);
       panel.setRunning('python');
-      const res = await runPython(code);
+      await writeFileAt(path, code);
+      const res = await runPythonAtPath(path);
       panel.setPythonResult(res);
     } else if (active === 'sql') {
       const sqlText = editedSql ?? snap.sql.source;
       if (sqlText.length === 0 || sqlBusy) return;
-      panel.setPending('sql', sqlText);
+      const path = MANUAL_PATHS.sql;
+      panel.setPending('sql', sqlText, path);
       panel.setRunning('sql');
-      const res = await runSQL(sqlText);
+      await writeFileAt(path, sqlText);
+      const res = await runSQLAtPath(path);
       panel.setSqlResult('error' in res ? res : res.panel);
     } else if (active === 'react') {
       const code = editedReact ?? snap.react.source;
       if (code.length === 0 || reactBusy) return;
-      panel.setPending('react', code);
+      const path = MANUAL_PATHS.react;
+      panel.setPending('react', code, path);
       panel.setRunning('react');
-      const res = await runReact(code);
+      await writeFileAt(path, code);
+      const res = await runReactAtPath(path);
       panel.setReactResult(res);
     }
   }, [
@@ -345,6 +368,14 @@ export default function ExecutionPanel() {
                   />
                   <span>Code</span>
                 </button>
+                {activePath && (
+                  <span
+                    className="exec-path-label"
+                    title={activePath}
+                  >
+                    {activePath}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="exec-play-btn"

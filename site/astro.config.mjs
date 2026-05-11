@@ -7,6 +7,13 @@ export default defineConfig({
   integrations: [mdx(), react()],
   vite: {
     plugins: [sourcecodePlugin()],
+    server: {
+      // The React sandbox iframe runs at a null origin (sandbox="allow-scripts"
+      // with no allow-same-origin) and dynamically imports the bundled libs
+      // module + recharts UMD from this dev server. Module imports require
+      // CORS, so allow any origin.
+      cors: true,
+    },
     // Under pnpm, @uiw/react-codemirror's ESM lives in a nested .pnpm path and
     // resolves @codemirror/state through its own symlinked deps, while the
     // standalone include entry resolves through the top-level node_modules.
@@ -51,6 +58,15 @@ export default defineConfig({
         'apache-arrow',
         'fflate',
         'typescript',
+        // React sandbox iframe loads these via a Vite-bundled module
+        // (`reactSandboxLibs.ts`). Pre-bundling keeps the dep URLs stable so
+        // first iframe load doesn't race a re-optimisation.
+        'three',
+        'pixi.js',
+        'simplex-noise',
+        'react-is',
+        '@tsparticles/engine',
+        'tsparticles',
         '@codemirror/state',
         '@codemirror/view',
         '@codemirror/language',
