@@ -5,14 +5,30 @@ import sourcecodePlugin from "./scripts/sourcecode-vite-plugin.mjs";
 
 export default defineConfig({
   integrations: [mdx(), react()],
+  // The React sandbox iframe runs at a null origin (sandbox="allow-scripts"
+  // with no allow-same-origin) and dynamically imports its bundled libs chunk
+  // from the same host that served the page. Null-origin module imports need
+  // an explicit CORS allowance. Astro's static preview server ignores
+  // `vite.preview.cors`, but it does forward `server.headers` to Vite — so we
+  // set the CORS header here and it covers both `astro dev` (via Vite's dev
+  // middleware) and `astro preview`.
+  server: {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+    },
+  },
   vite: {
     plugins: [sourcecodePlugin()],
     server: {
-      // The React sandbox iframe runs at a null origin (sandbox="allow-scripts"
-      // with no allow-same-origin) and dynamically imports the bundled libs
-      // module + recharts UMD from this dev server. Module imports require
-      // CORS, so allow any origin.
       cors: true,
+    },
+    // The React sandbox iframe loads `reactSandboxLibs.ts` via `?worker&url`
+    // so Vite bundles it instead of treating it as a raw `.ts` asset. We need
+    // ES-module output (not the default IIFE) because the iframe consumes the
+    // chunk via `await import(...)` and we want deps (three, pixi, …) to stay
+    // as separate chunks rather than being inlined into one multi-MB blob.
+    worker: {
+      format: 'es',
     },
     // Under pnpm, @uiw/react-codemirror's ESM lives in a nested .pnpm path and
     // resolves @codemirror/state through its own symlinked deps, while the

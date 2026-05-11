@@ -29,7 +29,15 @@ import framerMotionUmdUrl from '../../node_modules/framer-motion/dist/framer-mot
 import mermaidUmdUrl from '../../node_modules/mermaid/dist/mermaid.min.js?url';
 import matterUmdUrl from '../../node_modules/matter-js/build/matter.min.js?url';
 import rechartsUmdUrl from '../../node_modules/recharts/umd/Recharts.js?url';
-import sandboxLibsUrl from './reactSandboxLibs.ts?url';
+// `?worker&url` (not `?url`) so Vite runs the TS through its module pipeline:
+// TypeScript is compiled, bare specifiers (three, pixi, …) are resolved to
+// emitted chunks, and the result is a real ESM asset URL. With plain `?url`
+// the file is treated as a raw asset — the production build would inline it
+// as `data:video/mp2t;base64,…` (the default MIME for `.ts`) with the raw
+// TypeScript source, and the browser refuses to import that as a module.
+// We never actually instantiate this as a Worker; the iframe just `import()`s
+// the URL to run its side-effects (set globals on `window`).
+import sandboxLibsUrl from './reactSandboxLibs.ts?worker&url';
 
 export interface ReactCompileError {
   message: string;
