@@ -506,8 +506,8 @@ interface ReadLinesInput {
 
 interface WriteLinesInput {
   path: string;
-  from: number;
-  to: number;
+  from: number | undefined;
+  to: number | undefined;
   content: string;
 }
 
@@ -843,10 +843,11 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
   name: 'WriteLines',
   description:
     'Replace lines [from..to] (1-indexed, inclusive) of a text file under ' +
-    '/scratchpad with the provided content. Use to=from-1 to insert ' +
-    'without replacing. To create a new file, set from=1, to=0. /input is ' +
-    'read-only — WriteLines refuses any path outside /scratchpad. Parent ' +
-    'directories are auto-created.',
+    '/scratchpad with the provided content. Omit `from` and `to` to create ' +
+    'a new file from `content` (errors if the path already exists — use ' +
+    'explicit bounds to edit). Use to=from-1 to insert without replacing. ' +
+    '/input is read-only — WriteLines refuses any path outside /scratchpad. ' +
+    'Parent directories are auto-created.',
   parameters: {
     type: 'object',
     properties: {
@@ -856,32 +857,42 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
       },
       from: {
         type: 'integer',
-        description: '1-indexed first line to replace. For a new file, use from=1.',
+        description:
+          '1-indexed first line to replace. Omit (together with `to`) to ' +
+          'create a new file from `content`.',
       },
       to: {
         type: 'integer',
         description:
           '1-indexed last line to replace (inclusive). Use to=from-1 to ' +
-          'insert; to=0 with from=1 to create a new file.',
+          'insert without replacing. Omit (together with `from`) to create ' +
+          'a new file.',
       },
       content: {
         type: 'string',
         description:
-          'New content for the [from..to] range. May contain newlines; ' +
-          'they replace the targeted range.',
+          'New content for the [from..to] range, or the whole file when ' +
+          '`from`/`to` are omitted. May contain newlines.',
       },
     },
-    required: ['path', 'from', 'to', 'content'],
+    required: ['path', 'content'],
     additionalProperties: false,
   },
   promptMd: null,
   featureKey: 'fileTools',
-  parseInput: (raw) => ({
-    path: typeof raw.path === 'string' ? raw.path : '',
-    from: typeof raw.from === 'number' && Number.isInteger(raw.from) ? raw.from : NaN,
-    to: typeof raw.to === 'number' && Number.isInteger(raw.to) ? raw.to : NaN,
-    content: typeof raw.content === 'string' ? raw.content : '',
-  }),
+  parseInput: (raw) => {
+    const parseLineNum = (v: unknown): number | undefined => {
+      if (v === undefined || v === null) return undefined;
+      if (typeof v === 'number' && Number.isInteger(v)) return v;
+      return NaN;
+    };
+    return {
+      path: typeof raw.path === 'string' ? raw.path : '',
+      from: parseLineNum(raw.from),
+      to: parseLineNum(raw.to),
+      content: typeof raw.content === 'string' ? raw.content : '',
+    };
+  },
   gateInput: (input) => ({
     path: input.path,
     from: input.from,

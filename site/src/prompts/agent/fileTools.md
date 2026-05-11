@@ -27,19 +27,21 @@ Read lines `[from..to]` (1-indexed, inclusive) from a text file. Output is line-
 
 Use this before `WriteLines` if you need to confirm current contents, and after a `RunPython`/`RunSQL`/`RunReact` error to read the file at the `path` it returned.
 
-## WriteLines(path, from, to, content)
+## WriteLines(path, content) — create / WriteLines(path, from, to, content) — edit
 
-Replace lines `[from..to]` of a file under `/scratchpad` with `content`. `/input` is read-only — writes there return an error.
+Two modes, distinguished by whether `from`/`to` are present:
 
-- **Create a new file:** `from=1, to=0`. The line range is empty, so `content` becomes the whole file.
-- **Insert without replacing:** `to=from-1`. The range is empty, content is inserted before line `from`.
-- **Replace lines:** `from=1, to=10` replaces lines 1-10 with `content`.
-- Parent directories are auto-created.
+- **Create a new file:** omit `from` and `to`; pass just `path` and `content`. Errors if the file already exists (use `ReadLines` first, then edit with explicit bounds).
+- **Edit an existing file:** pass `from` and `to` to replace lines `[from..to]` (1-indexed, inclusive) with `content`.
+  - **Insert without replacing:** `to=from-1`. The range is empty, content is inserted before line `from`.
+  - **Replace lines:** `from=1, to=10` replaces lines 1-10 with `content`.
+
+`/input` is read-only — writes there return an error. Parent directories under `/scratchpad` are auto-created.
 
 Example — create then patch:
 
 ```
-→ WriteLines({"path":"/scratchpad/foo.py","from":1,"to":0,"content":"x = 1\nprint(x)\n"})
+→ WriteLines({"path":"/scratchpad/foo.py","content":"x = 1\nprint(x)\n"})
 ← Created /scratchpad/foo.py — 2 lines total.
 → WriteLines({"path":"/scratchpad/foo.py","from":1,"to":1,"content":"x = 2"})
 ← Updated /scratchpad/foo.py — 2 lines total.

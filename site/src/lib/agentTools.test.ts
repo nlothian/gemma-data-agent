@@ -60,6 +60,19 @@ describe('agentTools registry', () => {
     expect(names).toContain('WriteLines');
   });
 
+  it('WriteLines schema treats `from`/`to` as optional (omit both to create a new file)', () => {
+    const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));
+    const tool = byName.get('WriteLines');
+    expect(tool).toBeDefined();
+    const params = tool!.parameters as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(params.required).toEqual(['path', 'content']);
+    expect(params.properties).toHaveProperty('from');
+    expect(params.properties).toHaveProperty('to');
+  });
+
   it('RunPython/RunSQL/RunReact schemas require `path` and no longer accept `code`/`sql`', () => {
     const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));
     for (const name of ['RunPython', 'RunSQL', 'RunReact'] as const) {

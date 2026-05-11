@@ -231,34 +231,49 @@ export interface WriteLinesResult {
 
 export async function writeLinesToFile(
   virtualPath: string,
-  from: number,
-  to: number,
+  from: number | undefined,
+  to: number | undefined,
   content: string,
 ): Promise<WriteLinesResult> {
   const { root } = resolveVirtualPath(virtualPath);
   if (root !== 'scratchpad') {
     throw new Error('WriteLines can only target paths under /scratchpad');
   }
-  if (!Number.isInteger(from) || !Number.isInteger(to)) {
-    throw new Error('from and to must be integers');
-  }
-  if (from < 1) throw new Error('from must be >= 1');
-  if (to < from - 1) {
-    throw new Error('to must be >= from - 1 (use to=from-1 to insert without replacing)');
-  }
   if (typeof content !== 'string') {
     throw new Error('content must be a string');
+  }
+
+  const fromOmitted = from === undefined;
+  const toOmitted = to === undefined;
+  if (fromOmitted !== toOmitted) {
+    throw new Error('Provide both `from` and `to`, or omit both to create a new file.');
+  }
+  const bothOmitted = fromOmitted && toOmitted;
+  if (!bothOmitted) {
+    if (!Number.isInteger(from) || !Number.isInteger(to)) {
+      throw new Error('from and to must be integers');
+    }
+    if ((from as number) < 1) throw new Error('from must be >= 1');
+    if ((to as number) < (from as number) - 1) {
+      throw new Error('to must be >= from - 1 (use to=from-1 to insert without replacing)');
+    }
   }
 
   const existing = await tryReadTextFileAt(virtualPath);
   const created = existing === null;
 
-  if (created) {
-    if (from !== 1 || to !== 0) {
+  if (bothOmitted) {
+    if (!created) {
       throw new Error(
-        `File does not exist. To create it, call WriteLines with from=1, to=0.`,
+        `File ${virtualPath} already exists. Provide explicit \`from\`/\`to\` to edit it (ReadLines first to see line numbers).`,
       );
     }
+    from = 1;
+    to = 0;
+  } else if (created && (from !== 1 || to !== 0)) {
+    throw new Error(
+      'File does not exist. Omit `from` and `to` to create it from `content`.',
+    );
   }
 
   const text = existing ?? '';
@@ -266,18 +281,20 @@ export async function writeLinesToFile(
   const body = trailingNewline ? text.slice(0, -1) : text;
   const lines = splitLines(body);
 
-  if (from > lines.length + 1) {
+  const fromN = from as number;
+  const toN = to as number;
+  if (fromN > lines.length + 1) {
     throw new Error(
-      `from=${from} is past end of file (file has ${lines.length} lines; max from is ${lines.length + 1})`,
+      `from=${fromN} is past end of file (file has ${lines.length} lines; max from is ${lines.length + 1})`,
     );
   }
-  const removeCount = Math.max(0, to - from + 1);
+  const removeCount = Math.max(0, toN - fromN + 1);
   const insertLines = splitLines(content);
 
   const next = [
-    ...lines.slice(0, from - 1),
+    ...lines.slice(0, fromN - 1),
     ...insertLines,
-    ...lines.slice(from - 1 + removeCount),
+    ...lines.slice(fromN - 1 + removeCount),
   ];
 
   let outText = next.join('\n');
