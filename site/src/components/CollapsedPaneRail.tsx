@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  setExecCollapsed,
-  setExplainerCollapsed,
-  useRawPaneCollapse,
-  usePaneCollapse,
+  restore,
+  usePaneLayout,
   useRestoreFocusOnMount,
 } from '../lib/paneCollapseStore';
 import { ExpandContentIcon } from './Icons';
@@ -24,33 +22,31 @@ function useReactViewExpanded(): boolean {
 }
 
 export default function CollapsedPaneRail(): JSX.Element | null {
-  const raw = useRawPaneCollapse();
-  const effective = usePaneCollapse();
+  const layout = usePaneLayout();
   const reactViewExpanded = useReactViewExpanded();
-  const execTabRef = useRef<HTMLButtonElement>(null);
+  const agentsTabRef = useRef<HTMLButtonElement>(null);
   const explainerTabRef = useRef<HTMLButtonElement>(null);
 
-  const showExec = raw.exec;
-  const showExplainer = raw.explainer && !reactViewExpanded;
-  const forceExpanded = !effective.exec && !effective.explainer;
+  const showAgents = layout.agents === 'minimized';
+  const showExplainer = layout.explainer === 'minimized' && !reactViewExpanded;
 
-  useRestoreFocusOnMount('rail-exec-tab', execTabRef, showExec);
+  useRestoreFocusOnMount('rail-agents-tab', agentsTabRef, showAgents);
   useRestoreFocusOnMount('rail-explainer-tab', explainerTabRef, showExplainer);
 
-  if (forceExpanded || (!showExec && !showExplainer)) return null;
+  if (!showAgents && !showExplainer) return null;
 
   return (
     <div className="pane-rail" aria-label="Collapsed panes">
-      {showExec && (
+      {showAgents && (
         <button
-          ref={execTabRef}
+          ref={agentsTabRef}
           type="button"
           className="pane-rail-tab pane-rail-tab--exec"
           aria-label="Expand Agents pane"
           aria-expanded={false}
           aria-controls="exec-panel"
           title="Expand Agents"
-          onClick={() => setExecCollapsed(false)}
+          onClick={() => restore('agents')}
         >
           <ExpandContentIcon size={16} />
           <span className="pane-rail-label">Agents</span>
@@ -65,7 +61,7 @@ export default function CollapsedPaneRail(): JSX.Element | null {
           aria-expanded={false}
           aria-controls="explainer-panel"
           title="Expand Explainer"
-          onClick={() => setExplainerCollapsed(false)}
+          onClick={() => restore('explainer')}
         >
           <ExpandContentIcon size={16} />
           <span className="pane-rail-label">Explainer</span>

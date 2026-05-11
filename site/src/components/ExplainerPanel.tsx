@@ -32,9 +32,9 @@ import {
   PlayIcon,
 } from './Icons';
 import {
-  setExecCollapsed,
-  setExplainerCollapsed,
-  usePaneCollapse,
+  maximize,
+  minimize,
+  usePaneLayout,
   useRestoreFocusOnMount,
 } from '../lib/paneCollapseStore';
 import CompactionPreviewOverlay from './CompactionPreviewOverlay';
@@ -274,11 +274,14 @@ export default function ExplainerPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, code, entryId, summaryStatus, endpoint]);
 
-  const collapse = usePaneCollapse();
+  const layout = usePaneLayout();
   const collapseBtnRef = useRef<HTMLButtonElement>(null);
-  useRestoreFocusOnMount('explainer-collapse-btn', collapseBtnRef, !collapse.explainer);
+  const isVisible = layout.explainer !== 'minimized';
+  useRestoreFocusOnMount('explainer-collapse-btn', collapseBtnRef, isVisible);
 
-  if (collapse.explainer) return null;
+  if (!isVisible) return null;
+
+  const agentsMinimized = layout.agents === 'minimized';
 
   return (
     <>
@@ -299,17 +302,17 @@ export default function ExplainerPanel() {
               aria-expanded={true}
               aria-controls="explainer-panel"
               title="Collapse Explainer"
-              onClick={() => setExplainerCollapsed(true)}
+              onClick={() => minimize('explainer')}
             >
               <CollapseContentIcon size={16} />
             </button>
-            {!collapse.exec && (
+            {!agentsMinimized && (
               <button
                 type="button"
                 className="pane-collapse-btn pane-collapse-btn--explainer-expand"
                 aria-label="Maximize Explainer pane"
                 title="Maximize Explainer"
-                onClick={() => setExecCollapsed(true)}
+                onClick={() => maximize('explainer')}
               >
                 <ExpandContentIcon size={16} />
               </button>

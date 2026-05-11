@@ -1,54 +1,93 @@
 import { useEffect, useSyncExternalStore, type RefObject } from 'react';
 import { isBrowser } from './browser';
 
-export const PANE_COLLAPSE_STORAGE_KEY = 'haw.paneCollapse.v1';
+export const PANE_LAYOUT_STORAGE_KEY = 'haw.paneLayout.v2';
 
-export interface PaneCollapseSnapshot {
-  exec: boolean;
-  explainer: boolean;
+export type Pane = 'agents' | 'explainer';
+export type PaneVisibility = 'default' | 'maximized' | 'minimized';
+
+export interface PaneLayoutSnapshot {
+  agents: PaneVisibility;
+  explainer: PaneVisibility;
 }
 
 export type FocusTarget =
-  | 'exec-collapse-btn'
+  | 'agents-collapse-btn'
   | 'explainer-collapse-btn'
-  | 'rail-exec-tab'
+  | 'rail-agents-tab'
   | 'rail-explainer-tab';
 
-const DEFAULT_SNAPSHOT: PaneCollapseSnapshot = { exec: false, explainer: false };
+export type ForceExpandPane = Pane | 'both';
 
-function readStorage(): PaneCollapseSnapshot | null {
+const DEFAULT_SNAPSHOT: PaneLayoutSnapshot = {
+  agents: 'default',
+  explainer: 'default',
+};
+
+const VISIBILITIES: ReadonlyArray<PaneVisibility> = [
+  'default',
+  'maximized',
+  'minimized',
+];
+
+function isVisibility(v: unknown): v is PaneVisibility {
+  return (
+    typeof v === 'string' && (VISIBILITIES as ReadonlyArray<string>).includes(v)
+  );
+}
+
+function otherPane(p: Pane): Pane {
+  return p === 'agents' ? 'explainer' : 'agents';
+}
+
+function snapshotsEqual(a: PaneLayoutSnapshot, b: PaneLayoutSnapshot): boolean {
+  return a.agents === b.agents && a.explainer === b.explainer;
+}
+
+// Enforce: a pane can only be 'maximized' if the other is 'minimized'.
+// Used as a final guard for both persisted writes and effective recomputation
+// so it is impossible for the rail and a pane to render the same target at
+// the same time.
+function normalize(snap: PaneLayoutSnapshot): PaneLayoutSnapshot {
+  let { agents, explainer } = snap;
+  if (agents === 'maximized' && explainer !== 'minimized') agents = 'default';
+  if (explainer === 'maximized' && agents !== 'minimized') explainer = 'default';
+  return { agents, explainer };
+}
+
+function readStorage(): PaneLayoutSnapshot | null {
   if (!isBrowser()) return null;
   try {
-    const raw = window.localStorage.getItem(PANE_COLLAPSE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== 'object') return null;
     const obj = parsed as Record<string, unknown>;
-    return {
-      exec: typeof obj.exec === 'boolean' ? obj.exec : false,
-      explainer: typeof obj.explainer === 'boolean' ? obj.explainer : false,
-    };
+    return normalize({
+      agents: isVisibility(obj.agents) ? obj.agents : 'default',
+      explainer: isVisibility(obj.explainer) ? obj.explainer : 'default',
+    });
   } catch {
     return null;
   }
 }
 
-function writeStorage(snap: PaneCollapseSnapshot): void {
+function writeStorage(snap: PaneLayoutSnapshot): void {
   if (!isBrowser()) return;
   try {
-    window.localStorage.setItem(PANE_COLLAPSE_STORAGE_KEY, JSON.stringify(snap));
+    window.localStorage.setItem(PANE_LAYOUT_STORAGE_KEY, JSON.stringify(snap));
   } catch {
     // ignore quota / private-mode errors
   }
 }
 
-let persistedSnapshot: PaneCollapseSnapshot = { ...DEFAULT_SNAPSHOT };
-let currentEffective: PaneCollapseSnapshot = persistedSnapshot;
+let persistedSnapshot: PaneLayoutSnapshot = { ...DEFAULT_SNAPSHOT };
+let currentEffective: PaneLayoutSnapshot = persistedSnapshot;
 let hydrated = false;
 let pendingFocus: FocusTarget | null = null;
 const listeners = new Set<() => void>();
-const forceExpandReasons: { exec: Set<string>; explainer: Set<string> } = {
-  exec: new Set<string>(),
+const forceExpandReasons: { agents: Set<string>; explainer: Set<string> } = {
+  agents: new Set<string>(),
   explainer: new Set<string>(),
 };
 
@@ -57,11 +96,14 @@ function notify(): void {
 }
 
 function recomputeEffective(): void {
-  currentEffective = {
-    exec: forceExpandReasons.exec.size > 0 ? false : persistedSnapshot.exec,
-    explainer:
-      forceExpandReasons.explainer.size > 0 ? false : persistedSnapshot.explainer,
-  };
+  let { agents, explainer } = persistedSnapshot;
+  if (forceExpandReasons.agents.size > 0 && agents === 'minimized') {
+    agents = 'default';
+  }
+  if (forceExpandReasons.explainer.size > 0 && explainer === 'minimized') {
+    explainer = 'default';
+  }
+  currentEffective = normalize({ agents, explainer });
 }
 
 function hydrateOnce(): void {
@@ -74,11 +116,9 @@ function hydrateOnce(): void {
   recomputeEffective();
   if (isBrowser()) {
     window.addEventListener('storage', (event: StorageEvent) => {
-      if (event.key !== PANE_COLLAPSE_STORAGE_KEY) return;
+      if (event.key !== PANE_LAYOUT_STORAGE_KEY) return;
       const next = readStorage() ?? { ...DEFAULT_SNAPSHOT };
-      if (next.exec === persistedSnapshot.exec && next.explainer === persistedSnapshot.explainer) {
-        return;
-      }
+      if (snapshotsEqual(next, persistedSnapshot)) return;
       persistedSnapshot = next;
       recomputeEffective();
       notify();
@@ -86,58 +126,65 @@ function hydrateOnce(): void {
   }
 }
 
-function setSnapshot(next: PaneCollapseSnapshot): void {
-  if (next.exec === persistedSnapshot.exec && next.explainer === persistedSnapshot.explainer) {
-    return;
-  }
-  persistedSnapshot = next;
-  writeStorage(next);
+function setSnapshot(next: PaneLayoutSnapshot): void {
+  const normalized = normalize(next);
+  if (snapshotsEqual(normalized, persistedSnapshot)) return;
+  persistedSnapshot = normalized;
+  writeStorage(normalized);
   recomputeEffective();
   notify();
 }
 
-function subscribe(listener: () => void): () => void {
+function pickFocusTarget(
+  pane: Pane,
+  prev: PaneVisibility,
+  next: PaneVisibility,
+): FocusTarget | null {
+  if (next === 'minimized' && prev !== 'minimized') {
+    return pane === 'agents' ? 'rail-agents-tab' : 'rail-explainer-tab';
+  }
+  if (next !== 'minimized' && prev === 'minimized') {
+    return pane === 'agents' ? 'agents-collapse-btn' : 'explainer-collapse-btn';
+  }
+  return null;
+}
+
+export function setPaneState(pane: Pane, state: PaneVisibility): void {
   hydrateOnce();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  const current = persistedSnapshot;
+  const other = otherPane(pane);
+  const next: PaneLayoutSnapshot = { ...current };
+
+  if (state === 'maximized') {
+    next[pane] = 'maximized';
+    next[other] = 'minimized';
+  } else if (state === 'default') {
+    next[pane] = 'default';
+    if (current[other] === 'maximized') next[other] = 'default';
+  } else {
+    next[pane] = 'minimized';
+  }
+
+  const normalized = normalize(next);
+  const focus = pickFocusTarget(pane, current[pane], normalized[pane]);
+  if (focus) pendingFocus = focus;
+  setSnapshot(normalized);
 }
 
-function getSnapshot(): PaneCollapseSnapshot {
-  hydrateOnce();
-  return currentEffective;
+export function minimize(pane: Pane): void {
+  setPaneState(pane, 'minimized');
 }
 
-function getRawSnapshot(): PaneCollapseSnapshot {
-  hydrateOnce();
-  return persistedSnapshot;
+export function maximize(pane: Pane): void {
+  setPaneState(pane, 'maximized');
 }
 
-function getServerSnapshot(): PaneCollapseSnapshot {
-  return DEFAULT_SNAPSHOT;
+export function restore(pane: Pane): void {
+  setPaneState(pane, 'default');
 }
 
-export function setExecCollapsed(b: boolean): void {
-  hydrateOnce();
-  if (persistedSnapshot.exec === b) return;
-  pendingFocus = b ? 'rail-exec-tab' : 'exec-collapse-btn';
-  setSnapshot({ exec: b, explainer: persistedSnapshot.explainer });
-}
-
-export function setExplainerCollapsed(b: boolean): void {
-  hydrateOnce();
-  if (persistedSnapshot.explainer === b) return;
-  pendingFocus = b ? 'rail-explainer-tab' : 'explainer-collapse-btn';
-  setSnapshot({ exec: persistedSnapshot.exec, explainer: b });
-}
-
-export type ForceExpandPane = 'exec' | 'explainer' | 'both';
-
-function effectiveChanged(prev: PaneCollapseSnapshot): boolean {
-  return (
-    prev.exec !== currentEffective.exec || prev.explainer !== currentEffective.explainer
-  );
+function effectiveChanged(prev: PaneLayoutSnapshot): boolean {
+  return !snapshotsEqual(prev, currentEffective);
 }
 
 export function pushForceExpand(
@@ -146,7 +193,7 @@ export function pushForceExpand(
 ): void {
   hydrateOnce();
   const prev = currentEffective;
-  if (pane === 'exec' || pane === 'both') forceExpandReasons.exec.add(reason);
+  if (pane === 'agents' || pane === 'both') forceExpandReasons.agents.add(reason);
   if (pane === 'explainer' || pane === 'both') forceExpandReasons.explainer.add(reason);
   recomputeEffective();
   if (effectiveChanged(prev)) notify();
@@ -158,7 +205,7 @@ export function popForceExpand(
 ): void {
   hydrateOnce();
   const prev = currentEffective;
-  if (pane === 'exec' || pane === 'both') forceExpandReasons.exec.delete(reason);
+  if (pane === 'agents' || pane === 'both') forceExpandReasons.agents.delete(reason);
   if (pane === 'explainer' || pane === 'both')
     forceExpandReasons.explainer.delete(reason);
   recomputeEffective();
@@ -171,12 +218,30 @@ export function consumePendingFocus(target: FocusTarget): boolean {
   return true;
 }
 
-export function usePaneCollapse(): PaneCollapseSnapshot {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+function subscribe(listener: () => void): () => void {
+  hydrateOnce();
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
-export function useRawPaneCollapse(): PaneCollapseSnapshot {
-  return useSyncExternalStore(subscribe, getRawSnapshot, getServerSnapshot);
+function getSnapshot(): PaneLayoutSnapshot {
+  hydrateOnce();
+  return currentEffective;
+}
+
+function getRawSnapshot(): PaneLayoutSnapshot {
+  hydrateOnce();
+  return persistedSnapshot;
+}
+
+function getServerSnapshot(): PaneLayoutSnapshot {
+  return DEFAULT_SNAPSHOT;
+}
+
+export function usePaneLayout(): PaneLayoutSnapshot {
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export function useRestoreFocusOnMount(

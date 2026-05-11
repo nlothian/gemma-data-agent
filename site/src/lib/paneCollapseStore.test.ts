@@ -40,184 +40,278 @@ async function load() {
   return await import('./paneCollapseStore');
 }
 
+const BOTH_DEFAULT = { agents: 'default', explainer: 'default' } as const;
+
 describe('paneCollapseStore — persisted state', () => {
-  it('defaults to both expanded when no storage exists', async () => {
+  it('defaults to both default when no storage exists', async () => {
     const { __forTests } = await load();
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
   });
 
   it('hydrates from localStorage on first read', async () => {
     storage.setItem(
-      'haw.paneCollapse.v1',
-      JSON.stringify({ exec: true, explainer: false }),
+      'haw.paneLayout.v2',
+      JSON.stringify({ agents: 'minimized', explainer: 'default' }),
     );
     const { __forTests } = await load();
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: true, explainer: false });
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
   });
 
   it('falls back to defaults when storage value is malformed', async () => {
-    storage.setItem('haw.paneCollapse.v1', 'not-json');
+    storage.setItem('haw.paneLayout.v2', 'not-json');
     const { __forTests } = await load();
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
   });
 
   it('falls back to defaults when storage value has wrong shape', async () => {
     storage.setItem(
-      'haw.paneCollapse.v1',
-      JSON.stringify({ exec: 'yes', explainer: 1 }),
+      'haw.paneLayout.v2',
+      JSON.stringify({ agents: 'yes', explainer: 1 }),
     );
     const { __forTests } = await load();
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
   });
 
-  it('setExecCollapsed updates persisted state and writes localStorage', async () => {
-    const { setExecCollapsed, __forTests } = await load();
-    setExecCollapsed(true);
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: true, explainer: false });
-    expect(JSON.parse(storage.getItem('haw.paneCollapse.v1')!)).toEqual({
-      exec: true,
-      explainer: false,
+  it('normalizes invariant violations on hydrate', async () => {
+    storage.setItem(
+      'haw.paneLayout.v2',
+      JSON.stringify({ agents: 'maximized', explainer: 'default' }),
+    );
+    const { __forTests } = await load();
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
+  });
+
+  it('minimize updates persisted state and writes localStorage', async () => {
+    const { minimize, __forTests } = await load();
+    minimize('agents');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
+    expect(JSON.parse(storage.getItem('haw.paneLayout.v2')!)).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
     });
   });
 
-  it('setExplainerCollapsed updates state independently of exec', async () => {
-    const { setExecCollapsed, setExplainerCollapsed, __forTests } = await load();
-    setExecCollapsed(true);
-    setExplainerCollapsed(true);
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: true, explainer: true });
+  it('minimize on each pane is independent', async () => {
+    const { minimize, __forTests } = await load();
+    minimize('agents');
+    minimize('explainer');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'minimized',
+    });
   });
 
   it('is a no-op when value is unchanged (no notify, no write)', async () => {
-    const { setExecCollapsed, __forTests } = await load();
+    const { restore, __forTests } = await load();
     const setItemSpy = vi.spyOn(storage, 'setItem');
     const listener = vi.fn();
     __forTests.subscribe(listener);
-    setExecCollapsed(false);
+    restore('agents');
     expect(setItemSpy).not.toHaveBeenCalled();
     expect(listener).not.toHaveBeenCalled();
   });
 
   it('notifies subscribers on actual change', async () => {
-    const { setExecCollapsed, __forTests } = await load();
+    const { minimize, __forTests } = await load();
     const listener = vi.fn();
     __forTests.subscribe(listener);
-    setExecCollapsed(true);
+    minimize('agents');
     expect(listener).toHaveBeenCalledTimes(1);
   });
 });
 
+describe('paneCollapseStore — invariant: maximize implies other minimized', () => {
+  it('maximize sets the other pane to minimized', async () => {
+    const { maximize, __forTests } = await load();
+    maximize('agents');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'maximized',
+      explainer: 'minimized',
+    });
+  });
+
+  it('maximize on the other pane swaps which one is minimized', async () => {
+    const { maximize, __forTests } = await load();
+    maximize('agents');
+    maximize('explainer');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'maximized',
+    });
+  });
+
+  it('restoring a pane demotes a maximized neighbour to default', async () => {
+    const { maximize, restore, __forTests } = await load();
+    maximize('explainer');
+    restore('agents');
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
+  });
+
+  it('restoring from rail leaves a non-maximized neighbour alone', async () => {
+    const { minimize, restore, __forTests } = await load();
+    minimize('agents');
+    restore('agents');
+    expect(__forTests.getRawSnapshot()).toEqual(BOTH_DEFAULT);
+  });
+
+  it('minimizing the maximized pane leaves both panes minimized', async () => {
+    const { maximize, minimize, __forTests } = await load();
+    maximize('agents');
+    minimize('agents');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'minimized',
+    });
+  });
+});
+
 describe('paneCollapseStore — force-expand stack', () => {
-  it('overlays effective snapshot to both-expanded while reasons active', async () => {
-    const {
-      pushForceExpand,
-      setExecCollapsed,
-      setExplainerCollapsed,
-      __forTests,
-    } = await load();
-    setExecCollapsed(true);
-    setExplainerCollapsed(true);
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: true, explainer: true });
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: true });
+  it('overlays effective snapshot to default while reasons active', async () => {
+    const { pushForceExpand, minimize, __forTests } = await load();
+    minimize('agents');
+    minimize('explainer');
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'minimized',
+    });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'minimized',
+    });
 
     pushForceExpand('tour');
-    expect(__forTests.getRawSnapshot()).toEqual({ exec: true, explainer: true });
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'minimized',
+    });
+    expect(__forTests.getEffectiveSnapshot()).toEqual(BOTH_DEFAULT);
   });
 
   it('restores effective snapshot when stack drains', async () => {
-    const { pushForceExpand, popForceExpand, setExecCollapsed, __forTests } =
+    const { pushForceExpand, popForceExpand, minimize, __forTests } =
       await load();
-    setExecCollapsed(true);
+    minimize('agents');
     pushForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual(BOTH_DEFAULT);
     popForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
   });
 
   it('treats push of an already-active reason as a no-op', async () => {
-    const { pushForceExpand, popForceExpand, setExecCollapsed, __forTests } =
+    const { pushForceExpand, popForceExpand, minimize, __forTests } =
       await load();
-    setExecCollapsed(true);
+    minimize('agents');
     pushForceExpand('tour');
     pushForceExpand('tour');
     popForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
   });
 
   it('keeps overlay active while any reason remains', async () => {
-    const { pushForceExpand, popForceExpand, setExecCollapsed, __forTests } =
+    const { pushForceExpand, popForceExpand, minimize, __forTests } =
       await load();
-    setExecCollapsed(true);
+    minimize('agents');
     pushForceExpand('tour');
     pushForceExpand('pause');
     popForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual(BOTH_DEFAULT);
     popForceExpand('pause');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
   });
 
   it('ignores pop of a reason that was never pushed', async () => {
-    const { popForceExpand, setExecCollapsed, __forTests } = await load();
-    setExecCollapsed(true);
+    const { popForceExpand, minimize, __forTests } = await load();
+    minimize('agents');
     popForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
   });
 
-  it('per-pane release lets one pane collapse while the other stays forced', async () => {
-    const {
-      pushForceExpand,
-      popForceExpand,
-      setExecCollapsed,
-      setExplainerCollapsed,
-      __forTests,
-    } = await load();
-    setExecCollapsed(true);
-    setExplainerCollapsed(true);
+  it('per-pane release lets one pane minimize while the other stays forced', async () => {
+    const { pushForceExpand, popForceExpand, minimize, __forTests } =
+      await load();
+    minimize('agents');
+    minimize('explainer');
     pushForceExpand('tour');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: false });
+    expect(__forTests.getEffectiveSnapshot()).toEqual(BOTH_DEFAULT);
 
-    popForceExpand('tour', 'exec');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: true, explainer: false });
+    popForceExpand('tour', 'agents');
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'minimized',
+      explainer: 'default',
+    });
 
-    pushForceExpand('tour', 'exec');
+    pushForceExpand('tour', 'agents');
     popForceExpand('tour', 'explainer');
-    expect(__forTests.getEffectiveSnapshot()).toEqual({ exec: false, explainer: true });
+    expect(__forTests.getEffectiveSnapshot()).toEqual({
+      agents: 'default',
+      explainer: 'minimized',
+    });
+  });
+
+  it('demotes a maximized pane in effective view if force-expand un-minimizes the other', async () => {
+    const { pushForceExpand, maximize, __forTests } = await load();
+    maximize('agents'); // raw: agents=maximized, explainer=minimized
+    pushForceExpand('tour', 'explainer');
+    // Effective explainer goes minimized→default; invariant then demotes agents.
+    expect(__forTests.getEffectiveSnapshot()).toEqual(BOTH_DEFAULT);
+    expect(__forTests.getRawSnapshot()).toEqual({
+      agents: 'maximized',
+      explainer: 'minimized',
+    });
   });
 });
 
 describe('paneCollapseStore — pending focus', () => {
-  it('sets focus target to rail tab when collapsing exec', async () => {
-    const { setExecCollapsed, consumePendingFocus } = await load();
-    setExecCollapsed(true);
-    expect(consumePendingFocus('rail-exec-tab')).toBe(true);
-    expect(consumePendingFocus('rail-exec-tab')).toBe(false);
+  it('sets focus target to rail tab when minimizing agents', async () => {
+    const { minimize, consumePendingFocus } = await load();
+    minimize('agents');
+    expect(consumePendingFocus('rail-agents-tab')).toBe(true);
+    expect(consumePendingFocus('rail-agents-tab')).toBe(false);
   });
 
-  it('sets focus target to collapse button when expanding exec', async () => {
-    const { setExecCollapsed, consumePendingFocus } = await load();
-    setExecCollapsed(true);
-    consumePendingFocus('rail-exec-tab');
-    setExecCollapsed(false);
-    expect(consumePendingFocus('exec-collapse-btn')).toBe(true);
+  it('sets focus target to collapse button when restoring agents', async () => {
+    const { minimize, restore, consumePendingFocus } = await load();
+    minimize('agents');
+    consumePendingFocus('rail-agents-tab');
+    restore('agents');
+    expect(consumePendingFocus('agents-collapse-btn')).toBe(true);
   });
 
-  it('sets focus target when collapsing explainer', async () => {
-    const { setExplainerCollapsed, consumePendingFocus } = await load();
-    setExplainerCollapsed(true);
+  it('sets focus target when minimizing explainer', async () => {
+    const { minimize, consumePendingFocus } = await load();
+    minimize('explainer');
     expect(consumePendingFocus('rail-explainer-tab')).toBe(true);
   });
 
   it('returns false for non-matching target without clearing', async () => {
-    const { setExecCollapsed, consumePendingFocus } = await load();
-    setExecCollapsed(true);
+    const { minimize, consumePendingFocus } = await load();
+    minimize('agents');
     expect(consumePendingFocus('rail-explainer-tab')).toBe(false);
-    expect(consumePendingFocus('rail-exec-tab')).toBe(true);
+    expect(consumePendingFocus('rail-agents-tab')).toBe(true);
   });
 
   it('does not set a focus target on no-op writes', async () => {
-    const { setExecCollapsed, consumePendingFocus } = await load();
-    setExecCollapsed(false);
-    expect(consumePendingFocus('exec-collapse-btn')).toBe(false);
-    expect(consumePendingFocus('rail-exec-tab')).toBe(false);
+    const { restore, consumePendingFocus } = await load();
+    restore('agents');
+    expect(consumePendingFocus('agents-collapse-btn')).toBe(false);
+    expect(consumePendingFocus('rail-agents-tab')).toBe(false);
   });
 });

@@ -24,9 +24,9 @@ import * as subAgentStore from '../lib/subAgents/store';
 import { ChevronDownIcon, CollapseContentIcon, ExpandContentIcon, PlayIcon } from './Icons';
 import { registerExecBridge } from '../lib/tour/bridge';
 import {
-  setExecCollapsed,
-  setExplainerCollapsed,
-  usePaneCollapse,
+  maximize,
+  minimize,
+  usePaneLayout,
   useRestoreFocusOnMount,
 } from '../lib/paneCollapseStore';
 
@@ -57,7 +57,7 @@ export default function ExecutionPanel() {
     agentFeatures.getSnapshot,
     agentFeatures.getServerSnapshot,
   );
-  const collapse = usePaneCollapse();
+  const layout = usePaneLayout();
   const active = snap.activeTab;
   const subAgentStatus = deriveSubAgentStatus(subAgents.runs);
   const [codeFolded, setCodeFolded] = useState(false);
@@ -230,9 +230,12 @@ export default function ExecutionPanel() {
   );
 
   const collapseBtnRef = useRef<HTMLButtonElement>(null);
-  useRestoreFocusOnMount('exec-collapse-btn', collapseBtnRef, !collapse.exec);
+  const isVisible = layout.agents !== 'minimized';
+  useRestoreFocusOnMount('agents-collapse-btn', collapseBtnRef, isVisible);
 
-  if (collapse.exec) return null;
+  if (!isVisible) return null;
+
+  const explainerMinimized = layout.explainer === 'minimized';
 
   return (
     <section
@@ -241,7 +244,7 @@ export default function ExecutionPanel() {
       style={{ height }}
       aria-label="Execution panel"
       data-tour-id="exec.panel"
-      data-explainer-collapsed={collapse.explainer ? 'true' : 'false'}
+      data-explainer-collapsed={explainerMinimized ? 'true' : 'false'}
     >
       <div className="exec-tabs" role="tablist">
         {tabVisible.data && (
@@ -290,17 +293,17 @@ export default function ExecutionPanel() {
           aria-expanded={true}
           aria-controls="exec-panel"
           title="Collapse Agents"
-          onClick={() => setExecCollapsed(true)}
+          onClick={() => minimize('agents')}
         >
           <CollapseContentIcon size={16} />
         </button>
-        {!collapse.explainer && (
+        {!explainerMinimized && (
           <button
             type="button"
             className="pane-collapse-btn pane-collapse-btn--exec-expand"
             aria-label="Maximize Agents pane"
             title="Maximize Agents"
-            onClick={() => setExplainerCollapsed(true)}
+            onClick={() => maximize('agents')}
           >
             <ExpandContentIcon size={16} />
           </button>

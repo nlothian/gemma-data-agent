@@ -339,11 +339,16 @@ export default function TourOverlay(): JSX.Element | null {
   const measurerRef = useRef<HTMLDivElement | null>(null);
   const reducedMotion = useRef(false);
 
-  // Autostart from menu navigation.
+  // Autostart from menu navigation, or on a user's first visit.
   useEffect(() => {
     reducedMotion.current = prefersReducedMotion();
     if (localStorage.getItem('tour.autostart') === '1') {
       localStorage.removeItem('tour.autostart');
+      startTour(DEFAULT_TOUR);
+      return;
+    }
+    if (localStorage.getItem('tour.seen') !== '1') {
+      localStorage.setItem('tour.seen', '1');
       startTour(DEFAULT_TOUR);
     }
   }, []);

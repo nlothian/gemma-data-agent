@@ -37,6 +37,7 @@ describe('ACTION_NAMES', () => {
         'waitForLlmIdle',
         'waitForPythonIdle',
         'newChat',
+        'clearAllData',
         'pressExplainerExpand',
         'pressAgentsExpand',
         'typeExplainerMessage',

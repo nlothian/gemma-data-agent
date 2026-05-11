@@ -7,7 +7,7 @@
  * store to file-viewer mode at the requested range, and shows the overlay.
  */
 
-import { setExecCollapsed } from '../paneCollapseStore';
+import { minimize } from '../paneCollapseStore';
 import { openSourcecode } from './uiStore';
 import { setOpenFile } from './openFileStore';
 
@@ -22,7 +22,7 @@ export interface ShowSourcecodeRangeArgs {
 export function showSourcecodeRange(args: ShowSourcecodeRangeArgs): void {
   const startLine = Math.max(1, Math.floor(args.startLine));
   const endLine = Math.max(startLine, Math.floor(args.endLine ?? startLine));
-  setExecCollapsed(true);
+  minimize('agents');
   setOpenFile({ kind: 'range', path: args.path, startLine, endLine });
   openSourcecode();
 }

@@ -17,7 +17,7 @@ Key features:
 This tour walks through these features and takes about 5 minutes, depending on your hardware.
 `,
   cutouts: [],
-  onEnter: [{ action: 'newChat' }],
+  onEnter: [{ action: 'clearAllData' }, { action: 'newChat' }],
   next: 'manual',
 };
 

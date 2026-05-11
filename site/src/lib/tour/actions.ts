@@ -12,11 +12,11 @@
 import * as agentFeatures from '../agentFeaturesStore';
 import * as executionPanelStore from '../executionPanelStore';
 import type { AgentPromptFeatures } from '../agentTools';
+import { clearAllInputs } from '../duckdb';
 import {
+  maximize,
   popForceExpand,
   pushForceExpand,
-  setExecCollapsed,
-  setExplainerCollapsed,
 } from '../paneCollapseStore';
 import { closeSourcecode as closeSourcecodeOverlay } from '../sourcecode/uiStore';
 import { getChatBridge, getExecBridge, getExplainerBridge } from './bridge';
@@ -39,6 +39,7 @@ export type ActionName =
   | 'waitForLlmIdle'
   | 'waitForPythonIdle'
   | 'newChat'
+  | 'clearAllData'
   | 'pressExplainerExpand'
   | 'pressAgentsExpand'
   | 'typeExplainerMessage'
@@ -60,6 +61,7 @@ export interface ActionParams {
   waitForLlmIdle: { timeoutMs?: number };
   waitForPythonIdle: { timeoutMs?: number };
   newChat: Record<string, never>;
+  clearAllData: Record<string, never>;
   pressExplainerExpand: Record<string, never>;
   pressAgentsExpand: Record<string, never>;
   typeExplainerMessage: { text: string };
@@ -82,6 +84,7 @@ export const ACTION_NAMES: ReadonlyArray<ActionName> = [
   'waitForLlmIdle',
   'waitForPythonIdle',
   'newChat',
+  'clearAllData',
   'pressExplainerExpand',
   'pressAgentsExpand',
   'typeExplainerMessage',
@@ -258,15 +261,18 @@ function waitForPythonIdle(timeoutMs: number): Promise<void> {
  * - `newChat` `{}` — clear the chat history, abort any in-flight stream,
  *   reset the tool debugger, token usage, sub-agent store, and execution
  *   panel non-data panes. Same effect as pressing the New Chat button.
+ * - `clearAllData` `{}` — drop every loaded DuckDB table and clear the
+ *   IndexedDB-persisted copy. Same effect as pressing the data tab's
+ *   "Clear all" button, but works even when no tables are visible.
  * - `pressExplainerExpand` `{}` — maximize the Explainer pane during the
- *   tour. Releases the tour's force-expand on `exec` so the persisted
- *   collapse takes effect, then sets exec collapsed and clicks the
- *   `.pane-collapse-btn--explainer-expand` button so the user sees the
- *   button highlight.
+ *   tour. Releases the tour's force-expand on `agents` so the persisted
+ *   minimized state takes effect, then transitions the layout to
+ *   `explainer=maximized` and clicks the `.pane-collapse-btn--explainer-expand`
+ *   button so the user sees the button highlight.
  * - `pressAgentsExpand` `{}` — symmetric counterpart: re-claim
- *   force-expand on exec (in case it was released), release the tour's
- *   force-expand on `explainer`, set explainer collapsed, and click the
- *   `.pane-collapse-btn--exec-expand` button.
+ *   force-expand on `agents` (in case it was released), release the tour's
+ *   force-expand on `explainer`, transition the layout to `agents=maximized`,
+ *   and click the `.pane-collapse-btn--exec-expand` button.
  * - `typeExplainerMessage` `{ text }` — set the active Explainer
  *   conversation entry's draft input via the explainer bridge.
  * - `sendExplainerMessage` `{}` — submit the active Explainer conversation
@@ -346,17 +352,21 @@ export async function performAction<N extends ActionName>(
       getChatBridge().newChat();
       return;
     }
+    case 'clearAllData': {
+      await clearAllInputs();
+      return;
+    }
     case 'pressExplainerExpand': {
       clickExplainerExpandBtn();
-      popForceExpand('tour', 'exec');
-      setExecCollapsed(true);
+      popForceExpand('tour', 'agents');
+      maximize('explainer');
       return;
     }
     case 'pressAgentsExpand': {
       clickAgentsExpandBtn();
-      pushForceExpand('tour', 'exec');
+      pushForceExpand('tour', 'agents');
       popForceExpand('tour', 'explainer');
-      setExplainerCollapsed(true);
+      maximize('agents');
       return;
     }
     case 'typeExplainerMessage': {

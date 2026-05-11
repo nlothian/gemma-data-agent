@@ -47,6 +47,7 @@ will fail if a non-optional id is missing from the components.
 | `waitForLlmIdle`       | `{ timeoutMs?: number }`                                | Resolves on the `false → true → false` edge of `llm.active`; resolves with a warning on timeout.     |
 | `waitForPythonIdle`    | `{ timeoutMs?: number }`                                | Resolves once the Python pane returns from `pending`/`running`; warns on timeout.                    |
 | `newChat`              | `{}`                                                    | Clears the chat history and resets debugger / token / sub-agent state — same as the New Chat button. |
+| `clearAllData`         | `{}`                                                    | Drops all loaded DuckDB tables and clears the IDB-persisted copy — same as the data tab's Clear all. |
 
 ## Cutout catalogue
 

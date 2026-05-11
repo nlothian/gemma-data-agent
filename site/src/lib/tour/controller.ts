@@ -11,8 +11,7 @@ import { performAction } from './actions';
 import {
   popForceExpand,
   pushForceExpand,
-  setExecCollapsed,
-  setExplainerCollapsed,
+  restore,
 } from '../paneCollapseStore';
 import { closeSourcecode } from '../sourcecode/uiStore';
 
@@ -160,12 +159,12 @@ export function next(): void {
 }
 
 export function end(): void {
-  // Stages 11/12 may have collapsed one pane to maximize the other; restore
-  // both to expanded so the user lands back in the default two-column view
+  // Stages 11/12 may have minimized one pane to maximize the other; restore
+  // both to default so the user lands back in the default two-column view
   // regardless of where in the tour End Tour was pressed. Also drop any
   // sourcecode overlay that 12 left open.
-  setExecCollapsed(false);
-  setExplainerCollapsed(false);
+  restore('agents');
+  restore('explainer');
   closeSourcecode();
   popForceExpand('tour');
   activeDef = null;
