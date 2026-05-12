@@ -10,6 +10,8 @@ import { popForceExpand, pushForceExpand } from '../lib/paneCollapseStore';
 import SpotlightOverlay from './SpotlightOverlay';
 import type { CutoutId } from '../lib/tour/cutouts';
 
+const FILE_TOOLS = new Set<string>(['WriteLines', 'ReadLines', 'ListFiles', 'ListInputs']);
+
 const EXPLAINABLE_TOOLS = new Set<string>([
   'RunPython',
   'RunSQL',
@@ -17,6 +19,7 @@ const EXPLAINABLE_TOOLS = new Set<string>([
   'RunSubAgent',
   'LoadData',
   COMPACTION_TOOL_NAME,
+  ...FILE_TOOLS,
 ]);
 
 const EMPTY_CUTOUTS: ReadonlyArray<CutoutId> = [];
@@ -33,6 +36,9 @@ function cutoutsForTool(toolName: string): ReadonlyArray<CutoutId> {
   }
   if (toolName === COMPACTION_TOOL_NAME) {
     return ['exec.explainerPanel', 'chat.compactionRunButton'];
+  }
+  if (FILE_TOOLS.has(toolName)) {
+    return ['chat.stepButton', 'chat.playButton', 'exec.dataPanel'];
   }
   return EMPTY_CUTOUTS;
 }

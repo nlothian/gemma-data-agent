@@ -88,6 +88,10 @@
   --inner-gloss: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
   --focus-ring: 0 0 0 2px var(--white), 0 0 0 4px var(--aqua-500);
+
+  /* Accent stripe — the 3px aqua bar that marks the inner edge of pane
+     identity surfaces (rail tabs, pane headers, tab bars). */
+  --accent-stripe: 3px solid var(--aqua-100);
 }
 
 *,
@@ -146,7 +150,7 @@ a:hover {
 .nav-inner {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 14px 32px;
+  padding: 10px 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -160,6 +164,13 @@ a:hover {
   letter-spacing: -0.01em;
   color: var(--ink);
   font-size: 16px;
+}
+.brand h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 300;
+  letter-spacing: -0.01em;
 }
 .brand em {
   font-family: var(--font-serif);
@@ -489,8 +500,8 @@ body.chat-resizing {
   align-items: center;
   justify-content: space-between;
   padding: var(--s-3) var(--s-4);
-  border-bottom: 1px solid var(--mist);
-  background: var(--snow);
+  border-bottom: var(--accent-stripe);
+  background: var(--white);
 }
 .chat-title {
   font-size: 13px;
@@ -829,6 +840,16 @@ body.chat-resizing {
   opacity: 0.4;
   cursor: default;
 }
+.chat-toolbar .chat-iconbtn {
+  background: var(--aqua-500);
+  border-color: var(--aqua-500);
+  color: var(--white);
+}
+.chat-toolbar .chat-iconbtn:hover:not(:disabled) {
+  background: var(--aqua-700);
+  border-color: var(--aqua-700);
+  color: var(--white);
+}
 .chat-iconbtn--attention {
   animation: chat-iconbtn-attention 1.8s ease-in-out infinite;
 }
@@ -838,8 +859,8 @@ body.chat-resizing {
     chat-iconbtn-shake 80ms linear infinite;
 }
 @keyframes chat-iconbtn-attention {
-  0%, 100% { background: var(--aqua-50);  color: var(--aqua-500); }
-  50%      { background: var(--aqua-200); color: var(--aqua-700); }
+  0%, 100% { background: var(--aqua-500); border-color: var(--aqua-500); }
+  50%      { background: var(--aqua-300); border-color: var(--aqua-300); }
 }
 @keyframes chat-iconbtn-shake {
   0%, 100% { transform: translate(0, 0); }
@@ -1077,6 +1098,25 @@ body.chat-resizing {
 }
 .chat-retry:hover {
   color: var(--aqua-700);
+}
+.chat-continue-btn {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  background: var(--aqua-600);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-4);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chat-continue-btn:hover {
+  background: var(--aqua-700);
+}
+.chat-continue-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-sourcecode-link {
@@ -1518,9 +1558,9 @@ body.exec-resizing {
   display: flex;
   align-items: center;
   gap: var(--s-1);
-  padding: var(--s-2) var(--s-3) 0;
-  border-bottom: 1px solid var(--mist);
-  background: var(--snow);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: var(--accent-stripe);
+  background: var(--white);
   flex-shrink: 0;
 }
 
@@ -1588,30 +1628,32 @@ body.exec-resizing {
 }
 
 .exec-tab {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-2) var(--s-3);
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
   background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--r-8);
   color: var(--steel);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
 .exec-tab:hover {
   color: var(--graphite);
+  border-color: var(--mist);
 }
 
 .exec-tab[data-active="true"] {
-  color: var(--ink);
-  border-bottom-color: var(--aqua-500);
+  color: var(--aqua-500);
+  background: var(--aqua-50);
+  border-color: var(--aqua-200);
 }
 
 .exec-status-dot {
@@ -1771,8 +1813,8 @@ body.exec-resizing {
   align-items: center;
   justify-content: space-between;
   padding: var(--s-2) var(--s-3);
-  background: var(--snow);
-  border-bottom: 1px solid var(--mist);
+  background: var(--white);
+  border-bottom: var(--accent-stripe);
   flex-shrink: 0;
 }
 
@@ -1785,9 +1827,10 @@ body.exec-resizing {
 .explainer-title {
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--steel);
+  color: var(--aqua-500);
 }
 
 .explainer-body {
@@ -1882,9 +1925,9 @@ body.exec-resizing {
 }
 
 .explainer-tab[data-active="true"] {
-  color: var(--ink);
-  background: var(--white);
-  border-color: var(--mist);
+  color: var(--aqua-500);
+  background: var(--aqua-50);
+  border-color: var(--aqua-200);
 }
 
 .explainer-tab-icon {
@@ -2851,25 +2894,35 @@ body.react-view-expanded .exec-tabs .pane-collapse-btn {
   justify-content: flex-start;
   padding: 8px 0;
   gap: 12px;
-  background: var(--snow);
+  background: var(--white);
   border: 1px solid var(--mist);
+  border-right: var(--accent-stripe);
   border-radius: 8px;
   cursor: pointer;
-  color: var(--graphite);
+  color: var(--aqua-500);
+  box-shadow: var(--el-1), var(--inner-gloss);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-right-color 140ms ease;
 }
 .pane-rail-tab:hover {
-  background: var(--cloud);
+  transform: translateX(2px);
+  box-shadow: var(--el-2), var(--inner-gloss);
+  border-right-color: var(--aqua-600);
 }
-.pane-rail-tab:focus-visible {
-  outline: 2px solid var(--accent, var(--graphite));
-  outline-offset: 2px;
+.pane-rail-tab:active {
+  transform: translateX(1px);
+  box-shadow: var(--el-1), var(--inner-gloss);
 }
 .pane-rail-label {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--aqua-500);
 }
 

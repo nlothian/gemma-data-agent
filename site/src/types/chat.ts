@@ -24,6 +24,12 @@ export interface ChatMessage {
   kind?: 'compaction';
   createdAt: number;
   error?: boolean;
+  /**
+   * Set on an assistant message when the agent loop stopped because the tool
+   * iteration budget was exhausted. The UI renders a "Continue" button on
+   * that bubble; clicking it submits "Continue" as a new user turn.
+   */
+  maxIterationsReached?: boolean;
 }
 
 export interface ChatHistory {

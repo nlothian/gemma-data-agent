@@ -87,6 +87,7 @@ export default function ChatSidebar() {
     updateLastAssistant,
     appendLastAssistantHistory,
     setLastAssistantContent,
+    setLastAssistantMaxIterations,
     replaceMessages,
     clear,
     flush,
@@ -356,6 +357,7 @@ export default function ChatSidebar() {
         onToken: (delta) => updateLastAssistant(delta),
         onHistoryDelta: (delta) => appendLastAssistantHistory(delta),
         onUsage: (usage) => tokenUsageStore.setTokenUsage(usage),
+        onMaxIterationsReached: () => setLastAssistantMaxIterations(),
         onMidStreamCompaction: ({ summary }) => {
           // Insert the marker before the in-flight assistant turn (the tail
           // of history while streaming) so it shows up in the same position
@@ -532,6 +534,11 @@ export default function ChatSidebar() {
     compactionPending ||
     (!debugger_.pending && (isStreaming || input.trim().length === 0));
 
+  const onContinue = useCallback(() => {
+    if (isStreaming || unconfigured) return;
+    void sendPrompt('Continue');
+  }, [isStreaming, sendPrompt, unconfigured]);
+
   const onRetry = useCallback(
     (assistantId: string) => {
       const idx = history.messages.findIndex((m) => m.id === assistantId);
@@ -648,6 +655,7 @@ export default function ChatSidebar() {
           }
           highlightCompactedId={highlightCompactedId}
           onRetry={onRetry}
+          onContinue={onContinue}
           emptyState={
             <div className="chat-empty">
               Ask anything. Responses stream from the LLM you configured in Settings.

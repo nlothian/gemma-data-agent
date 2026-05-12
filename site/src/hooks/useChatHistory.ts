@@ -20,6 +20,8 @@ function isChatHistoryShape(value: unknown): value is ChatHistory {
       typeof msg.content === 'string' &&
       (msg.historyContent === undefined || typeof msg.historyContent === 'string') &&
       (msg.kind === undefined || msg.kind === 'compaction') &&
+      (msg.maxIterationsReached === undefined ||
+        typeof msg.maxIterationsReached === 'boolean') &&
       typeof msg.createdAt === 'number'
     );
   });
@@ -108,6 +110,7 @@ export interface UseChatHistoryResult {
   updateLastAssistant: (delta: string) => void;
   appendLastAssistantHistory: (delta: string) => void;
   setLastAssistantContent: (content: string, error?: boolean) => void;
+  setLastAssistantMaxIterations: () => void;
   replaceMessages: (messages: ChatMessage[]) => void;
   clear: () => void;
   flush: () => void;
@@ -161,6 +164,19 @@ export function useChatHistory(): UseChatHistoryResult {
     });
   }, []);
 
+  const setLastAssistantMaxIterations = useCallback((): void => {
+    update(
+      (prev) => {
+        if (prev.messages.length === 0) return prev;
+        const last = prev.messages[prev.messages.length - 1];
+        if (last.role !== 'assistant') return prev;
+        const nextLast: ChatMessage = { ...last, maxIterationsReached: true };
+        return { messages: [...prev.messages.slice(0, -1), nextLast] };
+      },
+      { persist: false },
+    );
+  }, []);
+
   const replaceMessages = useCallback((messages: ChatMessage[]): void => {
     update(() => ({ messages }));
   }, []);
@@ -180,6 +196,7 @@ export function useChatHistory(): UseChatHistoryResult {
     updateLastAssistant,
     appendLastAssistantHistory,
     setLastAssistantContent,
+    setLastAssistantMaxIterations,
     replaceMessages,
     clear,
     flush,

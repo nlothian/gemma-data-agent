@@ -234,10 +234,27 @@ function AssistantBody({ content }: { content: string }) {
   );
 }
 
-function renderMessageBody(m: ChatMessage, isPending: boolean) {
+function renderMessageBody(
+  m: ChatMessage,
+  isPending: boolean,
+  onContinue?: () => void,
+) {
   if (isPending) return <span className="chat-typing">…</span>;
   if (m.role === 'assistant' && !m.error) {
-    return <AssistantBody content={m.content} />;
+    return (
+      <>
+        <AssistantBody content={m.content} />
+        {m.maxIterationsReached && onContinue && (
+          <button
+            type="button"
+            className="chat-continue-btn"
+            onClick={onContinue}
+          >
+            Continue
+          </button>
+        )}
+      </>
+    );
   }
   return m.content;
 }
@@ -280,12 +297,14 @@ interface ChatMessageRowProps {
   message: ChatMessage;
   isPending: boolean;
   onRetry?: (id: string) => void;
+  onContinue?: () => void;
 }
 
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   isPending,
   onRetry,
+  onContinue,
 }: ChatMessageRowProps) {
   const m = message;
   const showCopy = !isPending && !!m.content;
@@ -293,7 +312,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     <div className={`chat-row chat-row-${m.role}`}>
       <div className={'chat-msg chat-msg-' + (m.error ? 'error' : m.role)}>
         {showCopy && <CopyBubbleButton message={m} />}
-        {renderMessageBody(m, isPending)}
+        {renderMessageBody(m, isPending, onContinue)}
       </div>
       {m.error && onRetry && (
         <button
@@ -314,6 +333,9 @@ export interface MessagesViewProps {
   pendingAssistantId?: string | null;
   highlightCompactedId?: string | null;
   onRetry?: (id: string) => void;
+  /** Invoked when the user clicks the "Continue" button on an assistant
+   * bubble that stopped at the tool-iteration limit. */
+  onContinue?: () => void;
   emptyState?: React.ReactNode;
   /** Forwarded ref so the parent can scroll-pin etc. */
   listRef?: React.Ref<HTMLDivElement>;
@@ -333,6 +355,7 @@ export default function MessagesView({
   pendingAssistantId,
   highlightCompactedId,
   onRetry,
+  onContinue,
   emptyState,
   listRef,
   systemPrompt,
@@ -367,6 +390,7 @@ export default function MessagesView({
             message={m}
             isPending={isPending}
             onRetry={onRetry}
+            onContinue={onContinue}
           />
         );
       })}

@@ -47,6 +47,10 @@ export interface StreamChatOptions {
   /** Fired when streamLocalGemma compacts mid-loop to fit a tool result;
    * insert a `kind: 'compaction'` marker into visible history. */
   onMidStreamCompaction?: (info: { summary: string }) => void;
+  /** Fired when the agent loop stops because the tool iteration budget ran
+   * out. The UI flags the assistant message so it can render a Continue
+   * button on that bubble. */
+  onMaxIterationsReached?: () => void;
 }
 
 const MAX_TOOL_ITERATIONS = 5;
@@ -81,7 +85,18 @@ type StreamEvent =
   | { type: 'usage'; input?: number; output?: number };
 
 export async function streamChat(opts: StreamChatOptions): Promise<void> {
-  const { config, messages, tools, toolDispatcher, signal, onToken, onDone, onError, onUsage } = opts;
+  const {
+    config,
+    messages,
+    tools,
+    toolDispatcher,
+    signal,
+    onToken,
+    onDone,
+    onError,
+    onUsage,
+    onMaxIterationsReached,
+  } = opts;
   const dispatch: ToolDispatcher = toolDispatcher ?? runAgentTool;
 
   let endpoint: string;
@@ -183,7 +198,8 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
       conv.push({ role: 'user', content: resultBlocks });
     }
 
-    emit('\n\nReached max tool iterations. Say Continue to keep going');
+    emit('\n\nReached max tool iterations');
+    onMaxIterationsReached?.();
     onDone(accumulatedText);
   } catch (err) {
     if (isAbortError(err)) {

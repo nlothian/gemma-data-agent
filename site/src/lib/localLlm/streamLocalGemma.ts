@@ -193,6 +193,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     onError,
     onUsage,
     onMidStreamCompaction,
+    onMaxIterationsReached,
   } = opts;
   const dispatch = toolDispatcher ?? runAgentTool;
   const emitHistory = (delta: string): void => {
@@ -413,7 +414,8 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
       });
     }
 
-    emit('\n\nReached max tool iterations. Say Continue to keep going');
+    emit('\n\nReached max tool iterations');
+    onMaxIterationsReached?.();
     onDone(accumulatedText);
   } catch (err) {
     if (isAbortError(err)) {
