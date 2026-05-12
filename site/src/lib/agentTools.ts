@@ -12,6 +12,7 @@ import {
   listFilesUnder,
   readLinesFromFile,
   readTextFileAt,
+  tryReadTextFileAt,
   writeLinesToFile,
 } from './agentFs';
 import {
@@ -650,8 +651,20 @@ const RunSQLTool: AgentTool<RunSQLInput, RunSQLOutcome, RunSQLResult> = {
   gateInput: (input) => ({ path: input.path, register_as: input.registerAs }),
   run: (input) => runSQLAtPath(input.path, input.registerAs),
   panel: {
-    onPending: (input) => panel.setPending('sql', '', input.path),
-    onRunning: () => panel.setRunning('sql'),
+    onPending: (input) => {
+      // Mark the SQL pane pending, then surface the File tab with the
+      // about-to-run source so the user can review it during the Step gate.
+      // `onRunning` switches back to the SQL tab once the gate releases.
+      panel.setPending('sql', '', input.path);
+      panel.setFilePending(input.path);
+      void tryReadTextFileAt(input.path).then((text) => {
+        panel.setFileResult(input.path, text ?? '');
+      });
+    },
+    onRunning: () => {
+      panel.setActiveTab('sql');
+      panel.setRunning('sql');
+    },
     onAborted: () => panel.setAborted('sql'),
     onResult: (res) => panel.setSqlResult('error' in res ? res : res.panel),
   },
@@ -698,8 +711,17 @@ const RunPythonTool: AgentTool<
   parseInput: (raw) => ({ path: typeof raw.path === 'string' ? raw.path : '' }),
   run: (input) => runPythonAtPath(input.path),
   panel: {
-    onPending: (input) => panel.setPending('python', '', input.path),
-    onRunning: () => panel.setRunning('python'),
+    onPending: (input) => {
+      panel.setPending('python', '', input.path);
+      panel.setFilePending(input.path);
+      void tryReadTextFileAt(input.path).then((text) => {
+        panel.setFileResult(input.path, text ?? '');
+      });
+    },
+    onRunning: () => {
+      panel.setActiveTab('python');
+      panel.setRunning('python');
+    },
     onAborted: () => panel.setAborted('python'),
     onResult: panel.setPythonResult,
   },
@@ -750,8 +772,17 @@ const RunReactTool: AgentTool<RunReactInput, RunReactResult & { path?: string }>
   parseInput: (raw) => ({ path: typeof raw.path === 'string' ? raw.path : '' }),
   run: (input) => runReactAtPath(input.path),
   panel: {
-    onPending: (input) => panel.setPending('react', '', input.path),
-    onRunning: () => panel.setRunning('react'),
+    onPending: (input) => {
+      panel.setPending('react', '', input.path);
+      panel.setFilePending(input.path);
+      void tryReadTextFileAt(input.path).then((text) => {
+        panel.setFileResult(input.path, text ?? '');
+      });
+    },
+    onRunning: () => {
+      panel.setActiveTab('react');
+      panel.setRunning('react');
+    },
     onAborted: () => panel.setAborted('react'),
     onResult: panel.setReactResult,
   },
@@ -880,6 +911,7 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
   },
   promptMd: null,
   featureKey: 'fileTools',
+  gated: false,
   parseInput: (raw) => {
     const parseLineNum = (v: unknown): number | undefined => {
       if (v === undefined || v === null) return undefined;
@@ -912,6 +944,20 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
     } catch (err) {
       return { error: errorMessage(err), path: input.path };
     }
+  },
+  panel: {
+    onPending: (input) => panel.setFilePending(input.path),
+    onRunning: () => panel.setRunning('file'),
+    onAborted: () => panel.setAborted('file'),
+    onResult: (res, input) => {
+      if (typeof res !== 'string') {
+        panel.setFileError(input.path, res.error);
+        return;
+      }
+      void tryReadTextFileAt(input.path).then((text) => {
+        panel.setFileResult(input.path, text ?? '');
+      });
+    },
   },
 };
 
@@ -1059,8 +1105,16 @@ export async function runAgentTool(
   }
 
   if (tool.gated === false) {
-    const res = await tool.run(parsed, signal);
-    return tool.toWire ? tool.toWire(res, parsed) : res;
+    tool.panel?.onPending(parsed);
+    tool.panel?.onRunning(parsed);
+    try {
+      const res = await tool.run(parsed, signal);
+      tool.panel?.onResult(res, parsed);
+      return tool.toWire ? tool.toWire(res, parsed) : res;
+    } catch (err) {
+      tool.panel?.onAborted(parsed);
+      throw err;
+    }
   }
 
   const res = await runWithGate<unknown>({
@@ -1095,12 +1149,20 @@ async function runSubAgentDispatch(
   if (!input.prompt.trim()) {
     return { error: 'RunSubAgent requires a non-empty `prompt`.' } satisfies ToolError;
   }
-  const [{ runSubAgent, prepareSubAgentRun }, { getSubAgentContext }, subAgentStore] =
-    await Promise.all([
-      import('./subAgents/runSubAgent'),
-      import('./subAgents/context'),
-      import('./subAgents/store'),
-    ]);
+  const [
+    { runSubAgent, prepareSubAgentRun },
+    { getSubAgentContext, getSubAgentDepth, enterSubAgent, exitSubAgent },
+    subAgentStore,
+  ] = await Promise.all([
+    import('./subAgents/runSubAgent'),
+    import('./subAgents/context'),
+    import('./subAgents/store'),
+  ]);
+  if (getSubAgentDepth() > 0) {
+    return {
+      error: 'RunSubAgent is not available inside a sub-agent — recursion is not allowed.',
+    } satisfies ToolError;
+  }
   const ctx = getSubAgentContext();
   if (!ctx) {
     return {
@@ -1121,15 +1183,21 @@ async function runSubAgentDispatch(
     onPending: () => panel.setActiveTab('subagents'),
     onAborted: () => subAgentStore.setStatus(runId, 'aborted'),
     onRunning: () => panel.setActiveTab('subagents'),
-    run: () =>
-      runSubAgent({
-        prompt: input.prompt,
-        taskLabel: input.taskLabel,
-        config: ctx.config,
-        parentMessages: ctx.parentMessages,
-        features: ctx.features,
-        signal,
-        runId,
-      }),
+    run: async () => {
+      enterSubAgent();
+      try {
+        return await runSubAgent({
+          prompt: input.prompt,
+          taskLabel: input.taskLabel,
+          config: ctx.config,
+          parentMessages: ctx.parentMessages,
+          features: ctx.features,
+          signal,
+          runId,
+        });
+      } finally {
+        exitSubAgent();
+      }
+    },
   });
 }

@@ -3,7 +3,9 @@ import {
   subscribe,
   getSnapshot,
   getServerSnapshot,
+  type PendingToolCall,
 } from '../lib/toolDebugger';
+import { tryReadTextFileAt } from '../lib/agentFs';
 import useLLMConfig, { isLLMUnconfigured } from '../hooks/useLLMConfig';
 import {
   initialState,
@@ -212,13 +214,33 @@ export default function ExplainerPanel() {
 
   // Translate the debugger snapshot into state-machine events.
   useEffect(() => {
-    if (debug.mode === 'running') {
-      dispatch({ type: 'MODE_RUNNING' });
-    } else if (!debug.pending) {
-      dispatch({ type: 'MODE_PAUSED_NO_PENDING' });
-    } else {
-      dispatch({ type: 'PENDING', call: debug.pending });
+    if (debug.mode === 'running') { dispatch({ type: 'MODE_RUNNING' }); return; }
+    if (!debug.pending) { dispatch({ type: 'MODE_PAUSED_NO_PENDING' }); return; }
+    const call = debug.pending;
+    const isPathBasedRunX =
+      call.toolName === 'RunPython' ||
+      call.toolName === 'RunSQL' ||
+      call.toolName === 'RunReact';
+    const rawPath =
+      isPathBasedRunX && call.input && typeof call.input === 'object'
+        ? (call.input as { path?: unknown }).path
+        : undefined;
+    if (typeof rawPath !== 'string') {
+      dispatch({ type: 'PENDING', call });
+      return;
     }
+    let cancelled = false;
+    void (async () => {
+      const text = (await tryReadTextFileAt(rawPath)) ?? '';
+      if (cancelled) return;
+      const field = call.toolName === 'RunSQL' ? 'sql' : 'code';
+      const enriched: PendingToolCall = {
+        ...call,
+        input: { ...(call.input as Record<string, unknown>), [field]: text },
+      };
+      dispatch({ type: 'PENDING', call: enriched });
+    })();
+    return () => { cancelled = true; };
   }, [debug.mode, debug.pending]);
 
   useEffect(() => {
@@ -269,10 +291,16 @@ export default function ExplainerPanel() {
     return () => {
       ctrl.abort();
     };
-    // `config` is stable across unrelated setting reads (see useLLMConfig);
-    // only `endpoint` is a meaningful invalidation trigger here.
+    // `summaryStatus` is intentionally NOT a dep: `runSummarisation` synchronously
+    // dispatches SUMMARY_LOADING, which would otherwise re-fire this effect and
+    // the cleanup would abort the in-flight summary before the LLM response
+    // arrives — leaving the entry stuck on "Summarising…" forever. The guard
+    // above still reads the latest `summaryStatus` at effect-run time, and
+    // status only ever flips idle → loading → ready/error, never back to idle.
+    // `config` is stable across unrelated setting reads (see useLLMConfig); only
+    // `endpoint` is a meaningful invalidation trigger here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, code, entryId, summaryStatus, endpoint]);
+  }, [language, code, entryId, endpoint]);
 
   const layout = usePaneLayout();
   const collapseBtnRef = useRef<HTMLButtonElement>(null);

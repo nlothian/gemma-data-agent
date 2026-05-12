@@ -27,3 +27,24 @@ export function setSubAgentContext(ctx: SubAgentContext | null): void {
 export function getSubAgentContext(): SubAgentContext | null {
   return current;
 }
+
+/**
+ * Tracks how many sub-agent runs are currently in flight on the stack.
+ * `RunSubAgent` is forbidden inside another sub-agent (no recursion), so the
+ * dispatcher refuses the call when this is non-zero. Belt-and-braces for the
+ * prompt-level filter in `runSubAgent.ts`, which already drops the tool from
+ * the sub-agent's system prompt and tool list.
+ */
+let subAgentDepth = 0;
+
+export function getSubAgentDepth(): number {
+  return subAgentDepth;
+}
+
+export function enterSubAgent(): void {
+  subAgentDepth += 1;
+}
+
+export function exitSubAgent(): void {
+  subAgentDepth = Math.max(0, subAgentDepth - 1);
+}
