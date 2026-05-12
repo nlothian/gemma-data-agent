@@ -231,14 +231,19 @@ export default function ExplainerPanel() {
     }
     let cancelled = false;
     void (async () => {
-      const text = (await tryReadTextFileAt(rawPath)) ?? '';
-      if (cancelled) return;
-      const field = call.toolName === 'RunSQL' ? 'sql' : 'code';
-      const enriched: PendingToolCall = {
-        ...call,
-        input: { ...(call.input as Record<string, unknown>), [field]: text },
-      };
-      dispatch({ type: 'PENDING', call: enriched });
+      try {
+        const text = (await tryReadTextFileAt(rawPath)) ?? '';
+        if (cancelled) return;
+        const field = call.toolName === 'RunSQL' ? 'sql' : 'code';
+        const enriched: PendingToolCall = {
+          ...call,
+          input: { ...(call.input as Record<string, unknown>), [field]: text },
+        };
+        dispatch({ type: 'PENDING', call: enriched });
+      } catch {
+        if (cancelled) return;
+        dispatch({ type: 'PENDING', call });
+      }
     })();
     return () => { cancelled = true; };
   }, [debug.mode, debug.pending]);

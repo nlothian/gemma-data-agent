@@ -8,6 +8,7 @@ import fileToolsMd from '../prompts/agent/fileTools.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
+import { getFeatures } from './agentFeaturesStore';
 import {
   listFilesUnder,
   readLinesFromFile,
@@ -656,10 +657,16 @@ const RunSQLTool: AgentTool<RunSQLInput, RunSQLOutcome, RunSQLResult> = {
       // about-to-run source so the user can review it during the Step gate.
       // `onRunning` switches back to the SQL tab once the gate releases.
       panel.setPending('sql', '', input.path);
-      panel.setFilePending(input.path);
-      void tryReadTextFileAt(input.path).then((text) => {
-        panel.setFileResult(input.path, text ?? '');
-      });
+      // Skip the File pane when fileTools is disabled — otherwise the tab is
+      // hidden and `setActiveTab('file')` would flicker through the fallback
+      // before `onRunning` switches to 'sql'.
+      if (getFeatures().fileTools) {
+        panel.setFilePending(input.path);
+        void tryReadTextFileAt(input.path).then(
+          (text) => panel.setFileResult(input.path, text ?? ''),
+          (err) => panel.setFileError(input.path, errorMessage(err)),
+        );
+      }
     },
     onRunning: () => {
       panel.setActiveTab('sql');
@@ -713,10 +720,13 @@ const RunPythonTool: AgentTool<
   panel: {
     onPending: (input) => {
       panel.setPending('python', '', input.path);
-      panel.setFilePending(input.path);
-      void tryReadTextFileAt(input.path).then((text) => {
-        panel.setFileResult(input.path, text ?? '');
-      });
+      if (getFeatures().fileTools) {
+        panel.setFilePending(input.path);
+        void tryReadTextFileAt(input.path).then(
+          (text) => panel.setFileResult(input.path, text ?? ''),
+          (err) => panel.setFileError(input.path, errorMessage(err)),
+        );
+      }
     },
     onRunning: () => {
       panel.setActiveTab('python');
@@ -774,10 +784,13 @@ const RunReactTool: AgentTool<RunReactInput, RunReactResult & { path?: string }>
   panel: {
     onPending: (input) => {
       panel.setPending('react', '', input.path);
-      panel.setFilePending(input.path);
-      void tryReadTextFileAt(input.path).then((text) => {
-        panel.setFileResult(input.path, text ?? '');
-      });
+      if (getFeatures().fileTools) {
+        panel.setFilePending(input.path);
+        void tryReadTextFileAt(input.path).then(
+          (text) => panel.setFileResult(input.path, text ?? ''),
+          (err) => panel.setFileError(input.path, errorMessage(err)),
+        );
+      }
     },
     onRunning: () => {
       panel.setActiveTab('react');
@@ -954,9 +967,10 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
         panel.setFileError(input.path, res.error);
         return;
       }
-      void tryReadTextFileAt(input.path).then((text) => {
-        panel.setFileResult(input.path, text ?? '');
-      });
+      void tryReadTextFileAt(input.path).then(
+        (text) => panel.setFileResult(input.path, text ?? ''),
+        (err) => panel.setFileError(input.path, errorMessage(err)),
+      );
     },
   },
 };

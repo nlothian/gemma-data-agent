@@ -319,6 +319,7 @@ export function setPending(
 }
 
 export function setFilePending(path: string): void {
+  const pathChanged = snapshot.file.path !== path;
   setSnapshot({
     ...snapshot,
     activeTab: 'file',
@@ -327,6 +328,9 @@ export function setFilePending(path: string): void {
       path,
       status: 'pending',
       errorMessage: undefined,
+      ...(pathChanged
+        ? { content: '', generation: snapshot.file.generation + 1 }
+        : null),
     },
   });
 }

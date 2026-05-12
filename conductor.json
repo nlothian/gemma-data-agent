@@ -1,0 +1,7 @@
+{
+    "scripts": {
+        "setup": "npm --prefix site install\n",
+        "remoteSetup": "npm --prefix site install\n",
+        "run": "npm --prefix site run dev"
+    }
+}
