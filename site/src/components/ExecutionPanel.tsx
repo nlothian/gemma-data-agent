@@ -19,7 +19,7 @@ import useExecutionPanelHeight, {
   MIN_HEIGHT,
   MAX_HEIGHT,
 } from '../hooks/useExecutionPanelHeight';
-import CodeView from './CodeView';
+import CodeView, { languageFromPath } from './CodeView';
 import DataPanel from './DataPanel';
 import PythonOutput from './PythonOutput';
 import ReactPanel from './ReactPanel';
@@ -81,11 +81,12 @@ export default function ExecutionPanel() {
     sql: !!features.runSql,
     react: !!features.runReact,
     subagents: true,
+    file: !!features.fileTools,
   };
 
   useEffect(() => {
     if (!tabVisible[active]) setActiveTab('subagents');
-  }, [active, tabVisible.data, tabVisible.python, tabVisible.sql, tabVisible.react]);
+  }, [active, tabVisible.data, tabVisible.python, tabVisible.sql, tabVisible.react, tabVisible.file]);
 
   useEffect(() => {
     if (reactViewExpanded) {
@@ -156,6 +157,7 @@ export default function ExecutionPanel() {
     active === 'python' ? snap.python.path
       : active === 'sql' ? snap.sql.path
       : active === 'react' ? snap.react.path
+      : active === 'file' ? snap.file.path
       : undefined;
 
   const handleRun = useCallback(async () => {
@@ -298,6 +300,13 @@ export default function ExecutionPanel() {
             status={snap.react.status}
           />
         )}
+        {tabVisible.file && (
+          <TabButton
+            kind="file"
+            active={active === 'file'}
+            status={snap.file.status}
+          />
+        )}
         <TabButton
           kind="subagents"
           active={active === 'subagents'}
@@ -343,6 +352,15 @@ export default function ExecutionPanel() {
             pendingUrl={snap.data.pendingUrl}
             pendingTable={snap.data.pendingTable}
           />
+        ) : active === 'file' ? (
+          <div className="exec-file-view" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <CodeView
+              key={snap.file.generation}
+              code={snap.file.content}
+              language={snap.file.path ? languageFromPath(snap.file.path) : 'plain'}
+              placeholder={snap.file.path ? '(empty file)' : 'Awaiting WriteLines call'}
+            />
+          </div>
         ) : (
           <>
             <div
@@ -475,6 +493,7 @@ function TabButton({ kind, active, status }: TabButtonProps) {
     kind === 'python' ? 'Python'
       : kind === 'sql' ? 'SQL'
       : kind === 'react' ? 'React'
+      : kind === 'file' ? 'File'
       : kind === 'subagents' ? 'SubAgents'
       : 'Data';
   return (

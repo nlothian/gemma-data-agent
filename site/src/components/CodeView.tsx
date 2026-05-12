@@ -7,7 +7,7 @@ import { EditorView, placeholder as placeholderExt } from '@codemirror/view';
 
 interface CodeViewProps {
   code: string;
-  language: 'python' | 'sql' | 'tsx';
+  language: 'python' | 'sql' | 'tsx' | 'plain';
   editable?: boolean;
   onChange?: (value: string) => void;
   placeholder?: string;
@@ -21,13 +21,14 @@ export default function CodeView({
   placeholder,
 }: CodeViewProps) {
   const extensions = useMemo(() => {
-    const lang =
-      language === 'python'
-        ? python()
-        : language === 'sql'
-          ? sql()
-          : javascript({ jsx: true, typescript: true });
-    const base = [lang, EditorView.lineWrapping];
+    const base =
+      language === 'plain'
+        ? [EditorView.lineWrapping]
+        : language === 'python'
+          ? [python(), EditorView.lineWrapping]
+          : language === 'sql'
+            ? [sql(), EditorView.lineWrapping]
+            : [javascript({ jsx: true, typescript: true }), EditorView.lineWrapping];
     if (placeholder) base.push(placeholderExt(placeholder));
     return base;
   }, [language, placeholder]);
@@ -71,4 +72,12 @@ export default function CodeView({
       style={{ height: '100%', fontFamily: 'var(--font-mono)', fontSize: 12 }}
     />
   );
+}
+
+export function languageFromPath(path: string): 'python' | 'sql' | 'tsx' | 'plain' {
+  const ext = path.toLowerCase().split('.').pop() ?? '';
+  if (ext === 'py') return 'python';
+  if (ext === 'sql') return 'sql';
+  if (ext === 'ts' || ext === 'tsx' || ext === 'js' || ext === 'jsx') return 'tsx';
+  return 'plain';
 }

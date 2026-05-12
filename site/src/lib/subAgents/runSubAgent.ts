@@ -94,9 +94,15 @@ export async function runSubAgent(
 
   const runId = args.runId ?? prepareSubAgentRun(args);
 
+  // Sub-agents must not be able to spawn further sub-agents. Disabling the
+  // `runSubAgent` feature drops it from BOTH the system prompt (so the sub
+  // isn't told the tool exists) and the tool-spec list, via the normal
+  // featureKey gating.
+  const subFeatures: AgentPromptFeatures = { ...features, runSubAgent: false };
+
   try {
     const summary = await summariseParent(parentMessages, config, signal);
-    const baseSystem = buildAgentSystemPrompt(features);
+    const baseSystem = buildAgentSystemPrompt(subFeatures);
     const systemPrompt =
       SUBAGENT_SYSTEM_HEADER +
       '\n\n' +
@@ -107,7 +113,7 @@ export async function runSubAgent(
       systemPrompt,
       prompt,
       config,
-      features,
+      features: subFeatures,
       signal,
       runId,
     });
@@ -155,9 +161,7 @@ async function runTextSubAgent(opts: {
     { role: 'user', content: prompt },
   ];
 
-  // Strip RunSubAgent from the sub-agent's own toolset so a malformed sub
-  // can't recursively spawn more sub-agents.
-  const tools = buildAgentTools(features).filter((t) => t.name !== 'RunSubAgent');
+  const tools = buildAgentTools(features);
 
   return new Promise<string>((resolve, reject) => {
     void streamChat({

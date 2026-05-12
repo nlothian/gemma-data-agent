@@ -24,7 +24,7 @@ function isSandboxFileResult(
   return (res as LoadedSandboxFileResult).kind === 'sandbox-file';
 }
 
-export type PaneKind = 'data' | 'python' | 'sql' | 'react' | 'subagents';
+export type PaneKind = 'data' | 'python' | 'sql' | 'react' | 'subagents' | 'file';
 export type PaneStatus =
   | 'idle'
   | 'pending'
@@ -96,6 +96,15 @@ export interface ReactPaneState {
   resultGeneration: number;
 }
 
+export interface FilePaneState {
+  path?: string;
+  content: string;
+  status: PaneStatus;
+  errorMessage?: string;
+  /** Bumped on each result so CodeView re-mounts on identical text. */
+  generation: number;
+}
+
 export interface LlmActivityState {
   active: boolean;
   /**
@@ -121,6 +130,7 @@ export interface ExecutionPanelSnapshot {
   sql: SqlPaneState;
   data: DataPaneState;
   react: ReactPaneState;
+  file: FilePaneState;
   llm: LlmActivityState;
   /**
    * True while we're rehydrating panel + registry state from IndexedDB after
@@ -159,6 +169,12 @@ const INITIAL_REACT: ReactPaneState = {
   resultGeneration: 0,
 };
 
+const INITIAL_FILE: FilePaneState = {
+  content: '',
+  status: 'idle',
+  generation: 0,
+};
+
 const INITIAL_LLM: LlmActivityState = {
   active: false,
   compacting: false,
@@ -172,6 +188,7 @@ const INITIAL_SNAPSHOT: ExecutionPanelSnapshot = {
   sql: INITIAL_SQL,
   data: INITIAL_DATA,
   react: INITIAL_REACT,
+  file: INITIAL_FILE,
   llm: INITIAL_LLM,
   restoring: false,
 };
@@ -194,6 +211,7 @@ interface PersistedPanelSnapshot {
   sql: SqlPaneState;
   data: DataPaneState;
   react?: Omit<ReactPaneState, 'resultGeneration'>;
+  file?: { path?: string };
 }
 
 function buildPersisted(s: ExecutionPanelSnapshot): PersistedPanelSnapshot {
@@ -210,6 +228,7 @@ function buildPersisted(s: ExecutionPanelSnapshot): PersistedPanelSnapshot {
     sql: s.sql,
     data: s.data,
     react: persistedReact,
+    file: { path: s.file.path },
   };
 }
 
@@ -299,6 +318,49 @@ export function setPending(
   });
 }
 
+export function setFilePending(path: string): void {
+  const pathChanged = snapshot.file.path !== path;
+  setSnapshot({
+    ...snapshot,
+    activeTab: 'file',
+    file: {
+      ...snapshot.file,
+      path,
+      status: 'pending',
+      errorMessage: undefined,
+      ...(pathChanged
+        ? { content: '', generation: snapshot.file.generation + 1 }
+        : null),
+    },
+  });
+}
+
+export function setFileResult(path: string, content: string): void {
+  setSnapshot({
+    ...snapshot,
+    file: {
+      ...snapshot.file,
+      path,
+      content,
+      status: 'done',
+      errorMessage: undefined,
+      generation: snapshot.file.generation + 1,
+    },
+  });
+}
+
+export function setFileError(path: string, errorMessage: string): void {
+  setSnapshot({
+    ...snapshot,
+    file: {
+      ...snapshot.file,
+      path,
+      status: 'error',
+      errorMessage,
+    },
+  });
+}
+
 export function setDataPending(tableName: string, url: string): void {
   setSnapshot({
     ...snapshot,
@@ -328,6 +390,11 @@ export function setRunning(kind: PaneKind): void {
     setSnapshot({
       ...snapshot,
       react: { ...snapshot.react, status: 'running' },
+    });
+  } else if (kind === 'file') {
+    setSnapshot({
+      ...snapshot,
+      file: { ...snapshot.file, status: 'running' },
     });
   } else {
     setSnapshot({
@@ -509,6 +576,11 @@ export function setAborted(kind: PaneKind): void {
       ...snapshot,
       react: { ...snapshot.react, status: 'aborted' },
     });
+  } else if (kind === 'file') {
+    setSnapshot({
+      ...snapshot,
+      file: { ...snapshot.file, status: 'aborted' },
+    });
   } else {
     setSnapshot({
       ...snapshot,
@@ -635,7 +707,8 @@ export function clearNonDataPanes(): void {
     snapshot.activeTab === 'python' ||
     snapshot.activeTab === 'sql' ||
     snapshot.activeTab === 'react' ||
-    snapshot.activeTab === 'subagents'
+    snapshot.activeTab === 'subagents' ||
+    snapshot.activeTab === 'file'
       ? 'data'
       : snapshot.activeTab;
   setSnapshot({
@@ -644,6 +717,7 @@ export function clearNonDataPanes(): void {
     python: INITIAL_PYTHON,
     sql: INITIAL_SQL,
     react: INITIAL_REACT,
+    file: INITIAL_FILE,
   });
 }
 
@@ -700,6 +774,7 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
           resultGeneration: 0,
         }
       : INITIAL_REACT,
+    file: { ...INITIAL_FILE, path: persisted.file?.path },
   });
 }
 
