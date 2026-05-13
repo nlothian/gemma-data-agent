@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   renderConversationForGemma,
   escapeForToolPrompt,
+  formatToolCallToken,
   formatToolResponseToken,
+  trimGemmaHistoryForCompaction,
   EMPTY_THOUGHT,
   CHANNEL_OPEN,
   CHANNEL_CLOSE,
@@ -13,6 +15,7 @@ import {
   STRING_DELIM,
   type InternalMessage,
 } from './toolPrompt';
+import { compactionToolStub } from '../parseAssistantContent';
 
 describe('renderConversationForGemma — thinkingEnabled flag', () => {
   const userOnly: InternalMessage[] = [{ role: 'user', content: 'hello' }];
@@ -142,5 +145,82 @@ describe('escapeForToolPrompt — structural delimiter defanging', () => {
     expect(token).toBe(
       `<|tool_response>response:RunPython{stdout:${STRING_DELIM}hello world${STRING_DELIM}}<tool_response|>`,
     );
+  });
+});
+
+describe('trimGemmaHistoryForCompaction', () => {
+  const makePair = (name: string, args: object, result: object): string =>
+    formatToolCallToken(name, JSON.stringify(args)) +
+    formatToolResponseToken(name, JSON.stringify(result));
+
+  it('passes plain text through unchanged', () => {
+    expect(trimGemmaHistoryForCompaction('just an answer')).toBe('just an answer');
+  });
+
+  it('keeps a single tool pair untouched', () => {
+    const input = 'pre ' + makePair('Foo', { x: 1 }, { ok: true }) + ' post';
+    expect(trimGemmaHistoryForCompaction(input)).toBe(input);
+  });
+
+  it('replaces every pair except the last with the shared stub', () => {
+    const p1 = makePair('First', { a: 1 }, { r: 'one' });
+    const p2 = makePair('Second', { b: 2 }, { r: 'two' });
+    const p3 = makePair('Third', { c: 3 }, { r: 'three' });
+    const input = `intro ${p1} mid ${p2} pre-last ${p3} tail`;
+    const out = trimGemmaHistoryForCompaction(input);
+    expect(out).toBe(
+      `intro ${compactionToolStub('First')} mid ${compactionToolStub('Second')} pre-last ${p3} tail`,
+    );
+    // Cheap sanity: structural markers from earlier pairs are gone.
+    expect(out.split(TOOL_CALL_OPEN).length - 1).toBe(1);
+    expect(out.split('<tool_call|>').length - 1).toBe(1);
+  });
+
+  it('handles a call with no matching response (stream interrupted)', () => {
+    // First pair complete, second pair has only the call token.
+    const p1 = makePair('First', {}, { r: 'one' });
+    const orphanCall = formatToolCallToken('Second', JSON.stringify({}));
+    const input = `${p1} between ${orphanCall} tail`;
+    expect(trimGemmaHistoryForCompaction(input)).toBe(
+      `${compactionToolStub('First')} between ${orphanCall} tail`,
+    );
+  });
+
+  it('stub uses the extracted tool name even when args are complex', () => {
+    const p1 = formatToolCallToken('GrepCodebase', JSON.stringify({ q: 'foo' })) +
+      formatToolResponseToken('GrepCodebase', JSON.stringify({ rows: [1, 2, 3] }));
+    const p2 = makePair('RunPython', { code: 'print(1)' }, { stdout: '1' });
+    const input = `${p1}${p2}`;
+    const out = trimGemmaHistoryForCompaction(input);
+    expect(out.startsWith(compactionToolStub('GrepCodebase'))).toBe(true);
+  });
+
+  it('is idempotent: trim(trim(x)) === trim(x)', () => {
+    const p1 = makePair('First', {}, { r: 'one' });
+    const p2 = makePair('Second', {}, { r: 'two' });
+    const p3 = makePair('Third', {}, { r: 'three' });
+    const cases = [
+      'plain prose',
+      `pre ${p1} post`,
+      `intro ${p1} mid ${p2} tail`,
+      `${p1}${p2}${p3}`,
+    ];
+    for (const input of cases) {
+      const once = trimGemmaHistoryForCompaction(input);
+      const twice = trimGemmaHistoryForCompaction(once);
+      expect(twice).toBe(once);
+    }
+  });
+});
+
+describe('stub-format parity with cloud-API trimmer', () => {
+  it('both trimmers produce identical stubs for the same tool name', () => {
+    // The shared helper is the contract. Gemma trimmer must use it verbatim.
+    const p1 = formatToolCallToken('RunPython', JSON.stringify({})) +
+      formatToolResponseToken('RunPython', JSON.stringify({ ok: 1 }));
+    const p2 = formatToolCallToken('RunPython', JSON.stringify({})) +
+      formatToolResponseToken('RunPython', JSON.stringify({ ok: 2 }));
+    const out = trimGemmaHistoryForCompaction(`${p1} ${p2}`);
+    expect(out.startsWith(compactionToolStub('RunPython'))).toBe(true);
   });
 });

@@ -2,7 +2,12 @@ import * as toolDebugger from './toolDebugger';
 import * as tokenUsageStore from './tokenUsageStore';
 import * as executionPanelStore from './executionPanelStore';
 import { compactConversation } from './compactConversation';
-import { stripThinking } from './parseAssistantContent';
+import {
+  stripCompactedMarker,
+  stripThinking,
+  trimAssistantContentForCompaction,
+} from './parseAssistantContent';
+import { trimGemmaHistoryForCompaction } from './localLlm/toolPrompt';
 import { generateId } from './browser';
 import {
   getContextWindowForEndpoint,
@@ -40,13 +45,15 @@ export function mapMessagesForLLM(messages: ChatMessage[]): ConvTurn[] {
       (m): m is ChatMessage & { role: 'user' | 'assistant' } =>
         !m.error && m.role !== 'system' && m.kind !== 'compaction',
     )
-    .map((m) => ({
-      role: m.role,
-      content:
-        m.role === 'assistant' && m.historyContent !== undefined
-          ? m.historyContent
-          : m.content,
-    }));
+    .map((m) => {
+      if (m.role !== 'assistant') return { role: m.role, content: m.content };
+      // historyContent (Gemma replay) never contains the compacted marker —
+      // the trimmer only writes it into content. For the cloud-API branch we
+      // strip the marker out so the foreign model doesn't see a Gemma-format
+      // channel tag it was never trained on.
+      const raw = m.historyContent ?? m.content;
+      return { role: m.role, content: stripCompactedMarker(raw) };
+    });
 }
 
 export function buildCompactionSlice(
@@ -79,7 +86,24 @@ export function buildCompactionSlice(
         }
       : m,
   );
-  return { toCompact, recent };
+  // Trim the kept "recent" round too: drop thinking blocks and replace all but
+  // the last tool call+result with a stub. Without this, a tool-heavy final
+  // turn (up to 5 iterations × 10KB results) drags ~25k tokens of transcript
+  // through every subsequent compaction, eating most of the post-compaction
+  // budget the summary was meant to free up.
+  const trimmedRecent = recent.map((m) =>
+    m.role === 'assistant'
+      ? {
+          ...m,
+          content: trimAssistantContentForCompaction(m.content),
+          historyContent:
+            m.historyContent !== undefined
+              ? trimGemmaHistoryForCompaction(m.historyContent)
+              : undefined,
+        }
+      : m,
+  );
+  return { toCompact, recent: trimmedRecent };
 }
 
 export interface RunCompactionDeps {

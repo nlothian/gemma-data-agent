@@ -13,7 +13,7 @@
 
 import { callLLM } from './llm';
 import { generate as generateLocal, ensureLoaded } from './localLlm/llmService';
-import { stripThinking } from './parseAssistantContent';
+import { stripCompactedMarker, stripThinking } from './parseAssistantContent';
 import type { ChatMessage } from '../types/chat';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT, type LLMConfig } from '../types/llm';
 import { DEFAULT_LOCAL_GEMMA_ID } from './localLlm/models';
@@ -66,7 +66,7 @@ export function serialiseConversation(messages: ChatMessage[]): string {
       parts.push(`USER: ${m.content}`);
     } else if (m.role === 'assistant') {
       const replay = m.historyContent ?? m.content;
-      parts.push(`ASSISTANT: ${stripThinking(replay)}`);
+      parts.push(`ASSISTANT: ${stripCompactedMarker(stripThinking(replay))}`);
     }
   }
   return parts.join('\n\n');

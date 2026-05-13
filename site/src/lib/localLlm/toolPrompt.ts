@@ -20,6 +20,7 @@
 
 import type { AgentToolSpec } from '../agentTools';
 import { safeParseJson } from '../streamChat';
+import { compactionToolStub } from '../parseAssistantContent';
 
 export const TURN_OPEN = '<|turn>';
 export const TURN_CLOSE = '<turn|>';
@@ -137,6 +138,63 @@ export function formatToolCallToken(name: string, argsJson: string): string {
 
 export function formatToolResponseToken(name: string, resultJson: string): string {
   return `${TOOL_RESPONSE_OPEN}response:${name}{${bodyFromJson(resultJson)}}${TOOL_RESPONSE_CLOSE}`;
+}
+
+// ---- history rewriting for compaction -------------------------------------
+
+/**
+ * Used by `buildCompactionSlice` so a tool-heavy final turn doesn't drag its
+ * full transcript through every subsequent compaction. Stub format is shared
+ * with the cloud-API trimmer via `compactionToolStub` so the two sites can't
+ * drift. (Tool-result content could in theory contain raw `\n\n` that the
+ * cloud-API parser would mis-split, but every result is `JSON.stringify`'d
+ * before storage and JSON escapes newlines, so it never reaches us.)
+ */
+export function trimGemmaHistoryForCompaction(content: string): string {
+  interface Pair {
+    callStart: number;
+    pairEnd: number;
+    name: string;
+  }
+  const pairs: Pair[] = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    const callStart = content.indexOf(TOOL_CALL_OPEN, cursor);
+    if (callStart === -1) break;
+    const bodyStart = callStart + TOOL_CALL_OPEN.length;
+    const callClose = content.indexOf(TOOL_CALL_CLOSE, bodyStart);
+    if (callClose === -1) break;
+    const callBody = content.slice(bodyStart, callClose).trim();
+    let name = 'tool';
+    if (callBody.startsWith('call:')) {
+      const afterPrefix = callBody.slice('call:'.length);
+      const brace = afterPrefix.indexOf('{');
+      if (brace !== -1) name = afterPrefix.slice(0, brace).trim() || 'tool';
+    }
+    let pairEnd = callClose + TOOL_CALL_CLOSE.length;
+    if (content.startsWith(TOOL_RESPONSE_OPEN, pairEnd)) {
+      const respClose = content.indexOf(
+        TOOL_RESPONSE_CLOSE,
+        pairEnd + TOOL_RESPONSE_OPEN.length,
+      );
+      if (respClose !== -1) pairEnd = respClose + TOOL_RESPONSE_CLOSE.length;
+    }
+    pairs.push({ callStart, pairEnd, name });
+    cursor = pairEnd;
+  }
+
+  if (pairs.length <= 1) return content;
+
+  let out = '';
+  let prev = 0;
+  for (let i = 0; i < pairs.length - 1; i++) {
+    const p = pairs[i];
+    out += content.slice(prev, p.callStart);
+    out += compactionToolStub(p.name);
+    prev = p.pairEnd;
+  }
+  out += content.slice(prev);
+  return out;
 }
 
 // ---- tool declaration block (system turn) ---------------------------------

@@ -200,6 +200,23 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     if (delta && onHistoryDelta) onHistoryDelta(delta);
   };
 
+  // Track decode-only time and output tokens across iterations so the UI can
+  // show a tokens/sec figure that excludes tool-dispatch latency. The current
+  // iteration window starts on the first non-empty model delta, not on
+  // synthetic UI transcript text such as tool call/result markers.
+  let totalOutputTokens = 0;
+  let totalDecodeMs = 0;
+  let iterDecodeStartedAt: number | null = null;
+  const stampModelDecode = (): void => {
+    if (iterDecodeStartedAt === null) iterDecodeStartedAt = performance.now();
+  };
+  const closeIterDecodeWindow = (): void => {
+    if (iterDecodeStartedAt !== null) {
+      totalDecodeMs += performance.now() - iterDecodeStartedAt;
+      iterDecodeStartedAt = null;
+    }
+  };
+
   // Token usage is reported once per turn, only after `await generate()` has
   // resolved. `sizeInTokens` re-enters the same MediaPipe `LlmInference` graph
   // as `generateResponse`, so calling it while a decode is in flight (e.g.
@@ -212,7 +229,10 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     const input = sizeInTokens(promptText);
     const output = sizeInTokens(outputText);
     if (input === null && output === null) return;
-    onUsage({ input: input ?? 0, output: output ?? 0 });
+    totalOutputTokens += output ?? 0;
+    const tps =
+      totalDecodeMs > 0 ? totalOutputTokens / (totalDecodeMs / 1000) : undefined;
+    onUsage({ input: input ?? 0, output: output ?? 0, tps });
   };
 
   const modelId = config.models[LOCAL_GEMMA_ENDPOINT] ?? DEFAULT_LOCAL_GEMMA_ID;
@@ -331,6 +351,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
         prompt,
         signal,
         onToken: (delta) => {
+          if (delta) stampModelDecode();
           if (pendingToolCall) return;
           for (const e of feedSplitter(splitter, delta)) {
             handleEvent(e);
@@ -357,11 +378,13 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
           emitHistory(toolBuffer);
           toolBuffer = '';
         }
+        closeIterDecodeWindow();
         reportUsage(prompt, assistantTurnText);
         onDone(accumulatedText);
         return;
       }
 
+      closeIterDecodeWindow();
       reportUsage(prompt, assistantTurnText);
 
       const tc: { name: string; argsJson: string } = pendingToolCall;

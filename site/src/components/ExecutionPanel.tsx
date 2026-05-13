@@ -353,7 +353,11 @@ export default function ExecutionPanel() {
             pendingTable={snap.data.pendingTable}
           />
         ) : active === 'file' ? (
-          <div className="exec-file-view" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div
+            className="exec-file-view"
+            data-tour-id="exec.fileContent"
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+          >
             <CodeView
               key={snap.file.generation}
               code={snap.file.content}
@@ -496,12 +500,14 @@ function TabButton({ kind, active, status }: TabButtonProps) {
       : kind === 'file' ? 'File'
       : kind === 'subagents' ? 'SubAgents'
       : 'Data';
+  const tourId = kind === 'file' ? 'exec.filesTab' : undefined;
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
       data-active={active}
+      data-tour-id={tourId}
       className="exec-tab"
       onClick={() => setActiveTab(kind)}
     >

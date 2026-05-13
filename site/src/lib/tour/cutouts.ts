@@ -21,6 +21,8 @@ export type CutoutId =
   | 'exec.runButton'
   | 'exec.pythonOutput'
   | 'exec.dataPanel'
+  | 'exec.filesTab'
+  | 'exec.fileContent'
   | 'exec.explainerMessages'
   | 'sourcecode.viewer';
 
@@ -120,6 +122,18 @@ export const CUTOUTS: Record<CutoutId, CutoutDef> = {
     id: 'exec.dataPanel',
     selector: dt('exec.dataPanel'),
     label: 'Data panel',
+    optional: true,
+  },
+  'exec.filesTab': {
+    id: 'exec.filesTab',
+    selector: dt('exec.filesTab'),
+    label: 'Files tab',
+    optional: true,
+  },
+  'exec.fileContent': {
+    id: 'exec.fileContent',
+    selector: dt('exec.fileContent'),
+    label: 'File content panel',
     optional: true,
   },
   'exec.explainerMessages': {

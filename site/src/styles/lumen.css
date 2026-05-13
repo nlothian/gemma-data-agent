@@ -720,6 +720,21 @@ body.chat-resizing {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.chat-tps {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--steel);
+  font-weight: 400;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--s-2);
+}
+.chat-tps-unit {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
 .chat-tokens.chat-pressure-warn {
   color: var(--warning-500);
 }
@@ -783,7 +798,7 @@ body.chat-resizing {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  width: 64px;
+  width: 32px;
   height: 14px;
   padding: 1px;
   border-radius: var(--r-2);

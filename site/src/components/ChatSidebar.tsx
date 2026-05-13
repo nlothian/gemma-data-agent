@@ -614,6 +614,17 @@ export default function ChatSidebar() {
           </div>
           <div className="chat-header-actions">
             <PressureIndicator />
+            {tokenUsage && typeof tokenUsage.tps === 'number' && tokenUsage.tps > 0 && (
+              <span
+                className="chat-tps"
+                title="Output tokens per second from the most recent turn (decode time only, excludes tool dispatch)"
+              >
+                {tokenUsage.tps < 10
+                  ? tokenUsage.tps.toFixed(1)
+                  : Math.round(tokenUsage.tps)}
+                <span className="chat-tps-unit"> tok/s</span>
+              </span>
+            )}
             {config.activeEndpoint && config.models[config.activeEndpoint] && (
               <span className={'chat-tokens' + pressureSuffix}>
                 {formatTokenCount(tokenUsage ? tokenUsage.input + tokenUsage.output : 0)}

@@ -197,6 +197,33 @@ export function CollapsibleCompacted({
   );
 }
 
+export function CollapsibleElidedReasoning() {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="chat-thinking-block">
+      <button
+        type="button"
+        className="chat-tool-summary"
+        data-expanded={expanded ? 'true' : 'false'}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <ChevronRightIcon size={14} />
+        <span className="chat-tool-name">Earlier reasoning elided</span>
+      </button>
+      {expanded && (
+        <div className="chat-tool-body">
+          <div className="chat-elided-reasoning-body">
+            Earlier reasoning and tool details from this turn were elided
+            during compaction to free up context. The final tool call and
+            answer are preserved above.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssistantBody({ content }: { content: string }) {
   const segments = useMemo<AssistantSegment[]>(
     () => parseAssistantContent(content),
@@ -220,6 +247,9 @@ function AssistantBody({ content }: { content: string }) {
         }
         if (seg.kind === 'thinking') {
           return <CollapsibleThinking key={i} text={seg.text} done={seg.done} />;
+        }
+        if (seg.kind === 'compacted') {
+          return <CollapsibleElidedReasoning key={i} />;
         }
         return (
           <CollapsibleToolCall

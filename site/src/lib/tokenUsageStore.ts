@@ -1,6 +1,12 @@
 export interface TokenUsage {
   input: number;
   output: number;
+  /**
+   * Post-hoc decode rate for the most recent turn — output tokens divided by
+   * cumulative time spent inside the model's generate() call(s), excluding
+   * tool-dispatch latency. Undefined until the first decode finishes.
+   */
+  tps?: number;
 }
 
 let current: TokenUsage | null = null;

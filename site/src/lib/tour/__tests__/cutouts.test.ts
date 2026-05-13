@@ -27,6 +27,8 @@ describe('cutout registry', () => {
       'exec.runButton',
       'exec.pythonOutput',
       'exec.dataPanel',
+      'exec.filesTab',
+      'exec.fileContent',
       'exec.explainerMessages',
       'sourcecode.viewer',
     ];

@@ -12,6 +12,9 @@ export interface StreamChatMessage {
 export interface TokenUsageReport {
   input: number;
   output: number;
+  /** Cumulative output tokens per second of decode time for this turn,
+   * excluding tool-dispatch latency between iterations. */
+  tps?: number;
 }
 
 export type ToolDispatcher = (
@@ -65,6 +68,13 @@ interface TurnResult {
   text: string;
   toolUses: ToolUse[];
   stopReason: string;
+  /** Wall-clock ms between the first text/tool delta and the last one in
+   * this turn — the decode-only window, excluding network connect time
+   * and the gap before any tokens arrive. */
+  decodeMs: number;
+  /** Output tokens reported by the provider for this turn (cumulative
+   * across SSE usage events within one runOneTurn call). */
+  outputTokens: number;
 }
 
 type ContentBlock =
@@ -139,10 +149,16 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
 
   let lastInput = 0;
   let lastOutput = 0;
+  // Cumulative across iterations so the displayed tok/s reflects all decode
+  // work in this turn, with tool-dispatch gaps between iterations excluded.
+  let totalDecodeMs = 0;
+  let totalOutputTokens = 0;
   const reportUsage = (u: { input?: number; output?: number }): void => {
     if (typeof u.input === 'number' && u.input > 0) lastInput = u.input;
     if (typeof u.output === 'number' && u.output >= 0) lastOutput = u.output;
-    onUsage?.({ input: lastInput, output: lastOutput });
+    const tps =
+      totalDecodeMs > 0 ? totalOutputTokens / (totalDecodeMs / 1000) : undefined;
+    onUsage?.({ input: lastInput, output: lastOutput, tps });
   };
 
   try {
@@ -164,6 +180,12 @@ export async function streamChat(opts: StreamChatOptions): Promise<void> {
         onText: emit,
         onUsage: reportUsage,
       });
+      totalDecodeMs += turn.decodeMs;
+      totalOutputTokens += turn.outputTokens;
+      // Re-emit usage now that this iteration's decode window has closed,
+      // so tok/s reflects the just-finished decode (the SSE usage event may
+      // have arrived before decodeMs was finalised).
+      reportUsage({});
 
       if (turn.toolUses.length === 0) {
         onDone(accumulatedText);
@@ -293,13 +315,26 @@ async function runOneTurn(t: TurnInput): Promise<TurnResult> {
   let text = '';
   const toolUsesByIndex = new Map<number, ToolUse>();
   let stopReason = '';
+  // Decode window: first delta to last delta. `firstDeltaAt` is set on the
+  // first text/tool delta, then `lastDeltaAt` is bumped on every subsequent
+  // delta so the diff captures pure inter-token streaming time.
+  let firstDeltaAt: number | null = null;
+  let lastDeltaAt = 0;
+  let outputTokens = 0;
+  const stampDelta = (): void => {
+    const now = performance.now();
+    if (firstDeltaAt === null) firstDeltaAt = now;
+    lastDeltaAt = now;
+  };
 
   const handleEvents = (events: StreamEvent[]): void => {
     for (const ev of events) {
       if (ev.type === 'text') {
+        stampDelta();
         text += ev.delta;
         onText(ev.delta);
       } else if (ev.type === 'tool_start') {
+        stampDelta();
         const existing = toolUsesByIndex.get(ev.index);
         if (existing) {
           if (ev.id) existing.id = ev.id;
@@ -308,12 +343,14 @@ async function runOneTurn(t: TurnInput): Promise<TurnResult> {
           toolUsesByIndex.set(ev.index, { id: ev.id, name: ev.name, inputJson: '' });
         }
       } else if (ev.type === 'tool_delta') {
+        stampDelta();
         const tu = toolUsesByIndex.get(ev.index);
         if (tu) tu.inputJson += ev.partialJson;
         else toolUsesByIndex.set(ev.index, { id: '', name: '', inputJson: ev.partialJson });
       } else if (ev.type === 'stop') {
         stopReason = ev.reason;
       } else if (ev.type === 'usage') {
+        if (typeof ev.output === 'number' && ev.output >= 0) outputTokens = ev.output;
         onUsage?.({ input: ev.input, output: ev.output });
       }
     }
@@ -345,7 +382,8 @@ async function runOneTurn(t: TurnInput): Promise<TurnResult> {
     .map(([, v]) => v)
     .filter((tu) => tu.name);
 
-  return { text, toolUses, stopReason };
+  const decodeMs = firstDeltaAt !== null ? Math.max(0, lastDeltaAt - firstDeltaAt) : 0;
+  return { text, toolUses, stopReason, decodeMs, outputTokens };
 }
 
 interface AnthropicContentBlock {

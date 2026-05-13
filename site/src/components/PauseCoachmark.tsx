@@ -26,7 +26,14 @@ const EMPTY_CUTOUTS: ReadonlyArray<CutoutId> = [];
 
 function cutoutsForTool(toolName: string): ReadonlyArray<CutoutId> {
   if (toolName === 'RunPython' || toolName === 'RunSQL' || toolName === 'RunReact') {
-    return ['exec.explainerPanel', 'chat.stepButton', 'chat.playButton', 'exec.codeEditor'];
+    return [
+      'exec.explainerPanel',
+      'chat.stepButton',
+      'chat.playButton',
+      'exec.codeEditor',
+      'exec.filesTab',
+      'exec.fileContent',
+    ];
   }
   if (toolName === 'LoadData') {
     return ['exec.explainerPanel', 'chat.stepButton', 'chat.playButton', 'exec.dataPanel'];
@@ -38,7 +45,7 @@ function cutoutsForTool(toolName: string): ReadonlyArray<CutoutId> {
     return ['exec.explainerPanel', 'chat.compactionRunButton'];
   }
   if (FILE_TOOLS.has(toolName)) {
-    return ['chat.stepButton', 'chat.playButton', 'exec.dataPanel'];
+    return ['chat.stepButton', 'chat.playButton', 'exec.dataPanel', 'exec.filesTab', 'exec.fileContent'];
   }
   return EMPTY_CUTOUTS;
 }
