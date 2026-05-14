@@ -10,13 +10,15 @@ import { createPortal } from 'react-dom';
 import { CloseIcon } from './Icons';
 import { CUTOUTS, type CutoutId } from '../lib/tour/cutouts';
 
-const PADDING = 8;
+// Keep the transparent mask aligned to the target element itself.
+// Expanding it outward makes neighboring button cutouts overlap in pause mode.
+const CUTOUT_INSET = 0;
 const CORNER_RADIUS = 12;
 const FADE_IN_MS = 180;
 const FADE_OUT_MS = 140;
 const TWEEN_MS = 250;
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -28,8 +30,14 @@ function rectOf(el: Element): Rect {
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 }
 
-function inflate(r: Rect, by: number): Rect {
-  return { x: r.x - by, y: r.y - by, w: r.w + by * 2, h: r.h + by * 2 };
+export function insetRect(r: Rect, by: number): Rect {
+  const inset = Math.min(by, r.w / 2, r.h / 2);
+  return {
+    x: r.x + inset,
+    y: r.y + inset,
+    w: r.w - inset * 2,
+    h: r.h - inset * 2,
+  };
 }
 
 function lerp(a: number, b: number, t: number): number {
@@ -67,6 +75,10 @@ function unionRects(rects: ReadonlyArray<Rect>): Rect {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+export function spotlightRectForRects(rects: ReadonlyArray<Rect>): Rect {
+  return insetRect(unionRects(rects), CUTOUT_INSET);
+}
+
 function selectorsFor(id: CutoutId): string[] {
   const def = CUTOUTS[id];
   if (!def) return [];
@@ -83,7 +95,7 @@ function resolveCutoutRects(ids: ReadonlyArray<CutoutId>): Rect[] {
       document.querySelectorAll(sel).forEach((el) => rects.push(rectOf(el)));
     }
     if (rects.length === 0) continue;
-    out.push(inflate(unionRects(rects), PADDING));
+    out.push(spotlightRectForRects(rects));
   }
   return out;
 }
