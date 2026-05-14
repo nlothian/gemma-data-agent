@@ -112,6 +112,72 @@ describe('agentTools registry', () => {
   });
 });
 
+describe('CallSkill', () => {
+  it('is registered regardless of feature flags', () => {
+    const allOff = buildAgentTools({
+      dataLoading: false,
+      runSql: false,
+      runPython: false,
+      runReact: false,
+      runSubAgent: false,
+      fileTools: false,
+    });
+    expect(allOff.map((t) => t.name)).toContain('CallSkill');
+    expect(buildAgentTools({}).map((t) => t.name)).toContain('CallSkill');
+  });
+
+  it('declares skill as an enum of the five valid values', () => {
+    const tool = AGENT_TOOLS.find((t) => t.name === 'CallSkill');
+    expect(tool).toBeDefined();
+    const params = tool!.parameters as {
+      properties: { skill: { enum: string[] } };
+      required: string[];
+    };
+    expect(params.required).toEqual(['skill']);
+    expect(params.properties.skill.enum).toEqual([
+      'react',
+      'matplotlib',
+      'python-pass-data',
+      'sql',
+      'data-loading',
+    ]);
+  });
+
+  it('returns the markdown for each known skill', async () => {
+    const react = await runAgentTool('CallSkill', { skill: 'react' });
+    expect(typeof react).toBe('string');
+    expect(react as string).toContain('recharts');
+
+    const matplotlib = await runAgentTool('CallSkill', { skill: 'matplotlib' });
+    expect(typeof matplotlib).toBe('string');
+    expect(matplotlib as string).toContain('plt.show()');
+
+    const passData = await runAgentTool('CallSkill', {
+      skill: 'python-pass-data',
+    });
+    expect(typeof passData).toBe('string');
+    expect(passData as string).toContain('arrow_tables');
+
+    const sql = await runAgentTool('CallSkill', { skill: 'sql' });
+    expect(typeof sql).toBe('string');
+    expect(sql as string).toContain('_last_sql_result');
+
+    const dataLoading = await runAgentTool('CallSkill', {
+      skill: 'data-loading',
+    });
+    expect(typeof dataLoading).toBe('string');
+    expect(dataLoading as string).toContain('ListInputs');
+  });
+
+  it('returns a ToolError for an unknown skill name', async () => {
+    const res = (await runAgentTool('CallSkill', { skill: 'bogus' })) as {
+      error?: string;
+    };
+    expect(res.error).toBeDefined();
+    expect(res.error).toMatch(/Unknown skill/);
+  });
+});
+
 describe('parseLoadDataInput', () => {
   it('passes bare sandbox paths through unchanged', () => {
     const r = parseLoadDataInput({ url: 'pollution.csv', table_name: 'p' });

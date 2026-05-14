@@ -5,6 +5,11 @@ import runPythonMd from '../prompts/agent/runPython.md?raw';
 import runReactMd from '../prompts/agent/runReact.md?raw';
 import runSubAgentMd from '../prompts/agent/runSubAgent.md?raw';
 import fileToolsMd from '../prompts/agent/fileTools.md?raw';
+import reactSkillMd from '../prompts/skills/ReactSkill.md?raw';
+import matplotlibSkillMd from '../prompts/skills/MatplotlibSkill.md?raw';
+import pythonPassDataSkillMd from '../prompts/skills/PythonPassDataSkill.md?raw';
+import sqlSkillMd from '../prompts/skills/SqlSkill.md?raw';
+import dataLoadingSkillMd from '../prompts/skills/DataLoadingSkill.md?raw';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -80,6 +85,23 @@ export type ListInputsEntry =
     };
 
 export type RunListInputsResult = { inputs: ListInputsEntry[] } | ToolError;
+
+export type CallSkillName =
+  | 'react'
+  | 'matplotlib'
+  | 'python-pass-data'
+  | 'sql'
+  | 'data-loading';
+export type CallSkillInput = { skill: CallSkillName };
+export type CallSkillResult = string | ToolError;
+
+const SKILL_REGISTRY: Record<CallSkillName, string> = {
+  react: reactSkillMd,
+  matplotlib: matplotlibSkillMd,
+  'python-pass-data': pythonPassDataSkillMd,
+  sql: sqlSkillMd,
+  'data-loading': dataLoadingSkillMd,
+};
 
 /**
  * Provider-neutral tool definition. `parameters` is a JSON Schema describing
@@ -1062,6 +1084,62 @@ const ListInputsTool: AgentTool<Record<string, never>, RunListInputsResult> = {
   run: () => runListInputs(),
 };
 
+const CallSkillTool: AgentTool<CallSkillInput, CallSkillResult> = {
+  name: 'CallSkill',
+  description:
+    "Fetch a reference card on demand. Use BEFORE writing code that touches " +
+    "the relevant area, not after a failure. Returns the skill's markdown " +
+    "text verbatim. Valid `skill` values: " +
+    "'react' (preloaded libraries in the React sandbox and how to mount " +
+    "canvas-vs-component ones), " +
+    "'matplotlib' (figure-capture rules and `plt.show()` caveat in " +
+    "`RunPython`), " +
+    "'python-pass-data' (Arrow IPC encoding for sending tables from " +
+    "`RunPython` back into DuckDB), " +
+    "'sql' (REQUIRED before `RunSQL`: WriteLines+RunSQL workflow, " +
+    "`_last_sql_result` / `arrow_inputs` bridge, sample-row truncation, " +
+    "`register_as` semantics), " +
+    "'data-loading' (REQUIRED before `LoadData` or `ListInputs`: read/load " +
+    "workflow, input registry shape, sandbox path conventions, CORS " +
+    "handling). " +
+    "Read-only and ungated; safe to call any time.",
+  parameters: {
+    type: 'object',
+    properties: {
+      skill: {
+        type: 'string',
+        enum: [
+          'react',
+          'matplotlib',
+          'python-pass-data',
+          'sql',
+          'data-loading',
+        ],
+        description: 'Which reference card to fetch.',
+      },
+    },
+    required: ['skill'],
+    additionalProperties: false,
+  },
+  promptMd: null,
+  featureKey: null,
+  gated: false,
+  parseInput: (raw) => ({
+    skill: (typeof raw.skill === 'string' ? raw.skill : '') as CallSkillName,
+  }),
+  run: async (input) => {
+    const md = SKILL_REGISTRY[input.skill];
+    if (md == null) {
+      return {
+        error:
+          `Unknown skill: ${JSON.stringify(input.skill)}. ` +
+          `Valid: react, matplotlib, python-pass-data, sql, data-loading.`,
+      };
+    }
+    return md;
+  },
+};
+
 // Order matters: it drives the prompt-fragment concatenation order and the
 // order tools are listed to the LLM.
 const TOOL_LIST: ReadonlyArray<AgentTool<unknown, unknown, unknown>> = [
@@ -1074,6 +1152,7 @@ const TOOL_LIST: ReadonlyArray<AgentTool<unknown, unknown, unknown>> = [
   WriteLinesTool,
   RunSubAgentTool,
   ListInputsTool,
+  CallSkillTool,
 ] as ReadonlyArray<AgentTool<unknown, unknown, unknown>>;
 
 const TOOL_REGISTRY: ReadonlyMap<string, AgentTool<unknown, unknown, unknown>> =

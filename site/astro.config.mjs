@@ -50,7 +50,19 @@ export default defineConfig({
       ],
     },
     optimizeDeps: {
-      exclude: ['@duckdb/duckdb-wasm', '@mediapipe/tasks-genai'],
+      // pixi.js v8 internally code-splits its renderers (browserAll, WebGPU /
+      // WebGL / Canvas renderers) via top-level dynamic imports. When Vite
+      // pre-bundles pixi.js, those dynamic imports become separate
+      // `.vite/deps/chunk-*.js` files whose `?v=` hash is computed
+      // independently from the parent `pixi__js.js?v=…` hash. Mid-session HMR
+      // can leave the parent and its children at different `?v=` values, and
+      // the iframe ends up evaluating Pixi's `extensions.add('shape-builder',
+      // …)` twice — failing with `Extension type shape-builder already has a
+      // handler`. Excluding pixi.js makes Vite leave the bare specifier alone
+      // and the iframe fetches the package's native ESM tree from
+      // `/node_modules/pixi.js/...` directly; the browser dedupes by URL, so
+      // the extension singleton is registered exactly once.
+      exclude: ['@duckdb/duckdb-wasm', '@mediapipe/tasks-genai', 'pixi.js'],
       // apache-arrow is only reached via the dynamic import of ./duckdb, so
       // Vite's static scan misses it. Pre-bundle it explicitly so the dep URL
       // is stable when the agent's tool wrappers eventually fire.
@@ -78,7 +90,6 @@ export default defineConfig({
         // (`reactSandboxLibs.ts`). Pre-bundling keeps the dep URLs stable so
         // first iframe load doesn't race a re-optimisation.
         'three',
-        'pixi.js',
         'simplex-noise',
         'react-is',
         '@tsparticles/engine',

@@ -33,29 +33,11 @@ If you need a query result in Python, either the table was already loaded by `Lo
 
 ## Plotting
 
-For any chart, plot, or figure, use matplotlib (`import matplotlib.pyplot as plt`). Create figures normally — the host already configures the AGG backend and captures every open figure as a PNG after your code runs, then displays them in the Python tab's "Plot" sub-tab. **Do not call `plt.show()`** — it emits `UserWarning: FigureCanvasAgg is non-interactive` and does nothing useful here. Do not call `matplotlib.use(...)` either. Each call starts with no open figures, so plots from a prior `RunPython` call don't leak in. Plots are static images (no zoom / pan).
+For any chart, plot, or figure, **call `CallSkill('matplotlib')` BEFORE writing matplotlib code** — the host has specific figure-capture behaviour and a `plt.show()` pitfall you need to know.
 
-## Returning tables to DuckDB (Python → DuckDB)
+## Returning tables to DuckDB
 
-In `RunPython`, assign `arrow_tables` in globals — each entry is auto-loaded as a DuckDB table of the same name (replacing any prior table with that name) and re-published to the input registry:
-
-```python
-import pandas as pd
-import pyarrow as pa
-
-def to_ipc(df):
-    table = pa.Table.from_pandas(df)
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, table.schema) as writer:
-        writer.write_table(table)
-    return sink.getvalue().to_pybytes()
-
-arrow_tables = {
-    "sales": to_ipc(pd.DataFrame({"region": ["a", "b"], "amount": [10, 20]})),
-}
-```
-
-After that runs, the next `RunSQL` can `SELECT * FROM sales`, and a later `RunPython` sees `arrow_inputs["sales"]` (encoding `arrow-ipc`).
+To send tables from Python back into DuckDB, assign to a global named `arrow_tables`. **Call `CallSkill('python-pass-data')` BEFORE writing that assignment** — it shows the required Arrow IPC encoding (a plain DataFrame won't work).
 
 ## Error symptom → cause
 
