@@ -315,6 +315,32 @@ export async function writeLinesToFile(
 }
 
 /**
+ * Wipe every entry under /scratchpad. The directory itself is kept so the
+ * next write doesn't need to recreate it. Safe to call when /scratchpad has
+ * never been used: returns silently if the directory or OPFS is unavailable.
+ */
+export async function clearScratchpad(): Promise<void> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) {
+    return;
+  }
+  const root = await navigator.storage.getDirectory();
+  let dir: FileSystemDirectoryHandle;
+  try {
+    dir = await root.getDirectoryHandle('scratchpad', { create: false });
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === 'NotFoundError') return;
+    throw err;
+  }
+  const names: string[] = [];
+  for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) {
+    names.push(name);
+  }
+  for (const name of names) {
+    await dir.removeEntry(name, { recursive: true });
+  }
+}
+
+/**
  * Full-replace write convenience for the manual ExecutionPanel re-run. Always
  * targets /scratchpad; creates parent dirs and the file as needed.
  */

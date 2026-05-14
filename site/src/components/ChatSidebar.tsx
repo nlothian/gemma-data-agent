@@ -44,6 +44,7 @@ import { renderConversationForGemma } from '../lib/localLlm/toolPrompt';
 import { isInputTooLongError, sizeInTokens } from '../lib/localLlm/llmService';
 import * as subAgentStore from '../lib/subAgents/store';
 import { setSubAgentContext } from '../lib/subAgents/context';
+import { clearScratchpad } from '../lib/agentFs';
 import { registerChatBridge } from '../lib/tour/bridge';
 import type { TokenUsage } from '../lib/tokenUsageStore';
 import type { ChatMessage } from '../types/chat';
@@ -559,6 +560,9 @@ export default function ChatSidebar() {
     tokenUsageStore.setTokenUsage(null);
     subAgentStore.clearAll();
     executionPanelStore.clearNonDataPanes();
+    void clearScratchpad().catch((err) => {
+      console.warn('onNewChat: failed to clear /scratchpad:', err);
+    });
     clear();
   }, [clear, isStreaming]);
   newChatRef.current = onNewChat;

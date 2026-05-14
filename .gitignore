@@ -24,3 +24,4 @@ dist/
 *.swo
 
 models/
+sample-data/
