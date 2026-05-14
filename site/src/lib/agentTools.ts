@@ -476,11 +476,33 @@ interface AgentTool<TInput, TResult, TWire = TResult> {
   toWire?: (res: TResult, input: TInput) => TWire;
 }
 
-interface LoadDataInput {
+export interface LoadDataInput {
   url: string;
   tableName: string;
   format: 'csv' | 'json' | 'parquet' | undefined;
   isRemote: boolean;
+}
+
+/**
+ * Normalise the raw `LoadData` arguments the LLM produces into the shape the
+ * tool runs against. Exported for unit testing — the LoadDataTool definition
+ * delegates to this.
+ */
+export function parseLoadDataInput(raw: Record<string, unknown>): LoadDataInput {
+  // Strip prefixes the agent invents instead of failing the FS Access name
+  // validator with "Name is not allowed": `sandbox:` / `file://` URI schemes,
+  // and the `/input` virtual root used by ListFiles/ReadLines (which refers
+  // to the same sandbox directory LoadData reads).
+  const rawUrl = typeof raw.url === 'string' ? raw.url : '';
+  const url = rawUrl
+    .replace(/^(?:sandbox:|file:\/\/)/, '')
+    .replace(/^\/input(?:\/|$)/, '');
+  const tableName = typeof raw.table_name === 'string' ? raw.table_name : '';
+  const fmt = typeof raw.format === 'string' ? raw.format : undefined;
+  const format =
+    fmt === 'csv' || fmt === 'json' || fmt === 'parquet' ? fmt : undefined;
+  const isRemote = /:\/\//.test(url);
+  return { url, tableName, format, isRemote };
 }
 
 interface RunSQLInput {
@@ -543,13 +565,13 @@ const LoadDataTool: AgentTool<LoadDataInput, RunLoadDataResult> = {
       url: {
         type: 'string',
         description:
-          'Public URL of a remote data file, or a path relative to the ' +
-          'user\'s sandbox directory (e.g. "reports/sales.csv"). Strings ' +
-          'containing "://" are URLs. For sandbox files, pass the ' +
-          '`sourcePath` from ListInputs verbatim — do NOT add a URI ' +
-          'scheme like "sandbox:" or "file://", and do NOT prepend a ' +
-          'leading "/". Adding any of those produces a "Name is not ' +
-          'allowed" error from the browser file API.',
+          'Public URL of a remote data file, or a path to a file inside ' +
+          'the user\'s sandbox directory. Strings containing "://" are ' +
+          'URLs. Sandbox paths may be passed as a bare relative path ' +
+          '("reports/sales.csv") or as the `/input/...` form used by ' +
+          'ListFiles/ReadLines ("/input/reports/sales.csv") — both refer ' +
+          'to the same file. Do NOT add URI schemes like "sandbox:" or ' +
+          '"file://".',
       },
       table_name: {
         type: 'string',
@@ -570,20 +592,7 @@ const LoadDataTool: AgentTool<LoadDataInput, RunLoadDataResult> = {
   },
   promptMd: dataLoadingMd,
   featureKey: 'dataLoading',
-  parseInput: (raw) => {
-    // The agent occasionally invents a `sandbox:` (or `file:`) URI scheme for
-    // local paths even though the docs ask for a bare relative path. Strip
-    // those prefixes so the lookup works instead of failing the FS Access
-    // name validator with "Name is not allowed".
-    const rawUrl = typeof raw.url === 'string' ? raw.url : '';
-    const url = rawUrl.replace(/^(?:sandbox:|file:\/\/)/, '');
-    const tableName = typeof raw.table_name === 'string' ? raw.table_name : '';
-    const fmt = typeof raw.format === 'string' ? raw.format : undefined;
-    const format =
-      fmt === 'csv' || fmt === 'json' || fmt === 'parquet' ? fmt : undefined;
-    const isRemote = /:\/\//.test(url);
-    return { url, tableName, format, isRemote };
-  },
+  parseInput: parseLoadDataInput,
   gateInput: (input) => ({
     url: input.url,
     table_name: input.tableName,

@@ -270,6 +270,28 @@ export function hydrateOnce(): void {
   })();
 }
 
+/**
+ * Test-only seam: adopt a pre-existing directory handle (typically OPFS) as
+ * the sandbox dir without going through the user-facing file picker. Used by
+ * Playwright e2e tests; not wired into any production code path.
+ */
+export async function __adoptDirectoryHandleForTesting(
+  handle: FileSystemDirectoryHandle,
+): Promise<void> {
+  currentHandle = handle;
+  try {
+    const { clearAllSandboxFiles } = await import('./sandboxFiles');
+    await clearAllSandboxFiles();
+  } catch {
+    // sandboxFiles may not have been imported yet — nothing to clear.
+  }
+  setState({
+    status: 'permitted',
+    directoryName: handle.name,
+    files: await enumerateFiles(handle),
+  });
+}
+
 export async function chooseDirectory(): Promise<void> {
   if (!hasFsAccess()) return;
   const handle = await window.showDirectoryPicker({ mode: 'read' });

@@ -11,7 +11,7 @@ Whenever the user names a file, table, dataset, or "the X data" — even if you 
 
 1. Find the entry whose `name` or `sourcePath` matches what the user asked for. Match leniently (filename, basename without extension, table name).
 2. If the matching entry has `loaded: true`, it's already in `arrow_inputs[name]` — go straight to using it.
-3. If the matching entry has `loaded: false`, call `LoadData(url=sourcePath, table_name=…)` first, then proceed. Pass `sourcePath` verbatim — no `sandbox:` prefix, no `file://`, no leading `/`. Pick a `table_name` matching `[A-Za-z_][A-Za-z0-9_]*` (typically the filename's stem).
+3. If the matching entry has `loaded: false`, call `LoadData(url=sourcePath, table_name=…)` first, then proceed. Pass `sourcePath` verbatim — no `sandbox:` or `file://` prefix. Pick a `table_name` matching `[A-Za-z_][A-Za-z0-9_]*` (typically the filename's stem).
 4. If nothing matches, tell the user what you do see — don't guess a path or fabricate a `LoadData` call against a name that wasn't in `ListInputs`.
 
 Skip the `ListInputs` round-trip only when the user's last message in this same turn already gave you a fully-qualified URL (`https://…`).
@@ -51,9 +51,9 @@ SELECT * FROM foo
 
 ## LoadData(url, table_name, format?)
 
-Load a tabular or non-tabular data file. The first argument is either a remote URL (contains `://`) or a relative path inside the user's sandbox directory (e.g. `reports/sales.csv`).
+Load a tabular or non-tabular data file. The first argument is either a remote URL (contains `://`) or a path inside the user's sandbox directory.
 
-For sandbox files, pass the `sourcePath` from `ListInputs` **as-is** — it's a bare relative path. Do NOT add a URI scheme like `sandbox:` or `file://`, and do NOT prepend a leading `/`. Note: `LoadData` uses sandbox-relative paths and pre-dates the `/input` virtual root used by `ListFiles`/`ReadLines` — they refer to the same directory but with different addressing. The browser's file API rejects names containing `:` and dot-segments (`.`, `..`), so any path-mangling will fail with `Name is not allowed`.
+For sandbox files, pass the `sourcePath` from `ListInputs` **as-is** (a bare relative path like `reports/sales.csv`), or the `/input/...` form used by `ListFiles`/`ReadLines` — both resolve to the same file. Do NOT add a URI scheme like `sandbox:` or `file://`. The browser's file API rejects dot-segments (`.`, `..`), so any path-mangling will fail with `Name is not allowed`.
 
 **Tabular files** (csv, json, parquet, xlsx) are loaded as a DuckDB table named `table_name` AND auto-published to the input registry as Arrow IPC under the same name. After `LoadData("foo.csv", "foo")`, the table is queryable as `foo` and readable in Python via `arrow_inputs["foo"]`.
 
