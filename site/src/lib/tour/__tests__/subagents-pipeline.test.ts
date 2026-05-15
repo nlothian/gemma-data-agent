@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import subAgentsPipeline, {
   PROMPT,
-  TRAIN_CSV_URL,
+  TRAIN_CSV_URL_TEMPLATE,
 } from '../stages/10-subagents-pipeline';
 import { DEFAULT_TOUR } from '../stages';
 import { ACTION_NAMES } from '../actions';
@@ -52,7 +52,7 @@ describe('subagents-pipeline stage', () => {
 
   it('prompt mentions sub-agents, the CSV URL, and the Sex feature', () => {
     expect(PROMPT).toContain('RunSubAgent');
-    expect(PROMPT).toContain(TRAIN_CSV_URL);
+    expect(PROMPT).toContain(TRAIN_CSV_URL_TEMPLATE);
     expect(PROMPT).toContain('Sex');
     expect(PROMPT).toMatch(/linear regression/i);
   });

@@ -1,81 +1,24 @@
 import { test, expect } from '@playwright/test';
+import {
+  dispatchLoadData,
+  runSqlDirect,
+  TITANIC_COLUMNS,
+} from './helpers/loadData';
 
 // End-to-end coverage for LoadData against a real remote URL — the Titanic
 // `train` CSV hosted on GitHub Gist (CORS-enabled via *.githubusercontent.com).
-// Hits the network: the test will fail offline. Mirrors loadData.spec.ts's
-// seam — fire the gated dispatch, release it via toolDebugger, await the
-// result on window.
+// Hits the network: the test will fail offline. The dispatch helper's default
+// timeouts already account for DuckDB-WASM cold-start plus a network fetch.
 //
-// First run also pays DuckDB-WASM init (~1–2 s) on top of the network fetch,
-// so the dispatch wait window is generous.
-
-declare global {
-  interface Window {
-    __loadDataResult?: unknown;
-    __sqlOutcome?: unknown;
-  }
-}
+// NOTE: the tour itself no longer fetches this gist — it now loads
+// /tour-data/train.csv from the same origin (see localTourData.spec.ts).
+// This test stays pointed at the gist on purpose: it is the only end-to-end
+// exercise of LoadData against a third-party CORS-enabled host, including
+// the HTTP-error surface from a remote 404. Do not retarget it to the
+// same-origin copy.
 
 const GIST_TITANIC_TRAIN_URL =
   'https://gist.githubusercontent.com/nlothian/65faed428e86c9724e83c4426d86c783/raw/7ecb4390910ee3400cc49dea0f8d1775fa53172b/train.csv';
-
-const EXPECTED_COLUMNS = [
-  'PassengerId',
-  'Survived',
-  'Pclass',
-  'Name',
-  'Sex',
-  'Age',
-  'SibSp',
-  'Parch',
-  'Ticket',
-  'Fare',
-  'Cabin',
-  'Embarked',
-];
-
-async function dispatchLoadData(
-  page: import('@playwright/test').Page,
-  url: string,
-  tableName: string,
-) {
-  await page.evaluate(
-    async ({ url, tableName }) => {
-      window.__loadDataResult = undefined;
-      const tools = await import('/src/lib/agentTools.ts');
-      void tools
-        .runAgentTool('LoadData', { url, table_name: tableName }, undefined)
-        .then((res) => {
-          window.__loadDataResult = res;
-        });
-    },
-    { url, tableName },
-  );
-  await page.waitForFunction(
-    async () => {
-      const dbg = await import('/src/lib/toolDebugger.ts');
-      return dbg.getSnapshot().pending !== null;
-    },
-    null,
-    { timeout: 10_000 },
-  );
-  await page.evaluate(async () => {
-    const dbg = await import('/src/lib/toolDebugger.ts');
-    dbg.play();
-  });
-  // Network fetch + DuckDB init can take several seconds on a cold run.
-  await page.waitForFunction(() => window.__loadDataResult !== undefined, null, {
-    timeout: 30_000,
-  });
-  return page.evaluate(() => window.__loadDataResult);
-}
-
-async function runSqlDirect(page: import('@playwright/test').Page, sql: string) {
-  return page.evaluate(async (sql) => {
-    const tools = await import('/src/lib/agentTools.ts');
-    return tools.runSQL(sql);
-  }, sql);
-}
 
 test.describe('LoadData remote URL — Titanic train CSV', () => {
   test.beforeEach(async ({ page }) => {
@@ -88,19 +31,7 @@ test.describe('LoadData remote URL — Titanic train CSV', () => {
   test('loads the gist-hosted CSV and reports the Titanic schema + row count', async ({
     page,
   }) => {
-    const res = (await dispatchLoadData(
-      page,
-      GIST_TITANIC_TRAIN_URL,
-      'titanic',
-    )) as {
-      name: string;
-      url: string;
-      format: string;
-      source: string;
-      rowCount: number;
-      schema: { name: string; type: string }[];
-      error?: string;
-    };
+    const res = await dispatchLoadData(page, GIST_TITANIC_TRAIN_URL, 'titanic');
     expect(res.error).toBeUndefined();
     expect(res).toMatchObject({
       name: 'titanic',
@@ -109,16 +40,16 @@ test.describe('LoadData remote URL — Titanic train CSV', () => {
       source: 'url',
       rowCount: 891,
     });
-    const colNames = res.schema.map((c) => c.name);
-    expect(colNames).toEqual(EXPECTED_COLUMNS);
+    const colNames = (res.schema ?? []).map((c) => c.name);
+    expect(colNames).toEqual(TITANIC_COLUMNS);
   });
 
   test('makes the loaded table queryable via DuckDB', async ({ page }) => {
-    const loaded = (await dispatchLoadData(
+    const loaded = await dispatchLoadData(
       page,
       GIST_TITANIC_TRAIN_URL,
       'titanic',
-    )) as { error?: string };
+    );
     expect(loaded.error).toBeUndefined();
 
     // Total-row sanity check.
@@ -155,9 +86,7 @@ test.describe('LoadData remote URL — Titanic train CSV', () => {
       '/train.csv',
       '/train_does_not_exist.csv',
     );
-    const res = (await dispatchLoadData(page, badUrl, 'missing')) as {
-      error?: string;
-    };
+    const res = await dispatchLoadData(page, badUrl, 'missing');
     expect(res.error).toBeDefined();
     expect(res.error).toContain('404');
     expect(res.error).toContain(badUrl);

@@ -107,6 +107,33 @@ describe('performAction', () => {
     expect(chat.setInput).toHaveBeenCalledWith('hi');
   });
 
+  it('typeMessage substitutes {TOUR_DATA_ORIGIN} with window.location.origin', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://example.test' } });
+    await performAction('typeMessage', {
+      text: 'load {TOUR_DATA_ORIGIN}/tour-data/train.csv',
+    });
+    expect(chat.setInput).toHaveBeenCalledWith(
+      'load https://example.test/tour-data/train.csv',
+    );
+  });
+
+  it('typeMessage replaces every occurrence of {TOUR_DATA_ORIGIN}', async () => {
+    vi.stubGlobal('window', { location: { origin: 'https://example.test' } });
+    await performAction('typeMessage', {
+      text: '{TOUR_DATA_ORIGIN}/a and {TOUR_DATA_ORIGIN}/b',
+    });
+    expect(chat.setInput).toHaveBeenCalledWith(
+      'https://example.test/a and https://example.test/b',
+    );
+  });
+
+  it('typeMessage does not touch window when the token is absent', async () => {
+    // No window stub — handler must not crash on token-free text in a node
+    // environment (matches the original behaviour before substitution landed).
+    await performAction('typeMessage', { text: 'no token here' });
+    expect(chat.setInput).toHaveBeenCalledWith('no token here');
+  });
+
   it('newChat forwards to chat bridge newChat', async () => {
     await performAction('newChat', {});
     expect(chat.newChat).toHaveBeenCalledTimes(1);

@@ -24,6 +24,16 @@ import { CUTOUTS, type CutoutId } from './cutouts';
 
 const DEFAULT_WAIT_TIMEOUT_MS = 60000;
 
+/**
+ * Placeholder substituted with `window.location.origin` by the `typeMessage`
+ * action at dispatch time. Stage modules embed this token in prompts so they
+ * stay free of browser-API access at import time (Astro evaluates stage
+ * modules in Node during dev/prerender). Substituting to a fully-qualified
+ * `http(s)://` URL also routes LoadData through its URL fetch path rather
+ * than the sandbox resolver (isRemote tests for `://`).
+ */
+export const TOUR_DATA_ORIGIN_TOKEN = '{TOUR_DATA_ORIGIN}';
+
 export type FeatureKey = keyof AgentPromptFeatures;
 
 export type ActionName =
@@ -304,7 +314,12 @@ export async function performAction<N extends ActionName>(
     }
     case 'typeMessage': {
       const p = params as ActionParams['typeMessage'];
-      getChatBridge().setInput(p.text);
+      // Touch window only when the token is present, so window-free callers
+      // (unit tests, prompts without the token) stay intact.
+      const text = p.text.includes(TOUR_DATA_ORIGIN_TOKEN)
+        ? p.text.replaceAll(TOUR_DATA_ORIGIN_TOKEN, window.location.origin)
+        : p.text;
+      getChatBridge().setInput(text);
       return;
     }
     case 'pressStepButton': {

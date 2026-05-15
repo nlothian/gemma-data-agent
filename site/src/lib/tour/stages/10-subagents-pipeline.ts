@@ -1,11 +1,13 @@
 import type { TourStage } from '../types';
+import { TOUR_DATA_ORIGIN_TOKEN } from '../actions';
 
-const TRAIN_CSV_URL =
-  'https://gist.githubusercontent.com/nlothian/65faed428e86c9724e83c4426d86c783/raw/7ecb4390910ee3400cc49dea0f8d1775fa53172b/train.csv';
+// Served from site/public/tour-data/. The token is substituted at dispatch
+// time — see TOUR_DATA_ORIGIN_TOKEN in ../actions for why it is a placeholder.
+const TRAIN_CSV_URL_TEMPLATE = `${TOUR_DATA_ORIGIN_TOKEN}/tour-data/train.csv`;
 
 const PROMPT = `Run two separate sub-agents, one after the other, using the RunSubAgent tool:
 
-1. First sub-agent: load the CSV at ${TRAIN_CSV_URL} as a table named \`train\` (use the LoadData tool).
+1. First sub-agent: load the CSV at ${TRAIN_CSV_URL_TEMPLATE} as a table named \`train\` (use the LoadData tool).
 2. Second sub-agent: train a linear regression in Python (RunPython) on the \`train\` table, predicting Survived from the \`Sex\` feature only. Print the fitted coefficients and R² score.
 
 Each sub-task must run in its own RunSubAgent call.`;
@@ -37,5 +39,5 @@ const subAgentsPipeline: TourStage = {
   next: 'manual',
 };
 
-export { TRAIN_CSV_URL, PROMPT };
+export { TRAIN_CSV_URL_TEMPLATE, PROMPT };
 export default subAgentsPipeline;
