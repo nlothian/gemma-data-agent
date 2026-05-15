@@ -161,6 +161,15 @@ const INITIAL_DATA: DataPaneState = {
   tables: [],
 };
 
+/**
+ * Where a Data pane settles once a failed/aborted load is dropped: `done` if
+ * tables survived, else `idle`. Non-error statuses pass through untouched.
+ */
+function restingDataStatus(status: PaneStatus, hasTables: boolean): PaneStatus {
+  if (status !== 'error' && status !== 'aborted') return status;
+  return hasTables ? 'done' : 'idle';
+}
+
 const INITIAL_REACT: ReactPaneState = {
   source: '',
   status: 'idle',
@@ -222,11 +231,20 @@ function buildPersisted(s: ExecutionPanelSnapshot): PersistedPanelSnapshot {
   // reload anyway, so we don't want a stale generation triggering a re-mount).
   const { images: _imgs, ...persistedPython } = s.python;
   const { resultGeneration: _gen, ...persistedReact } = s.react;
+  // A failed/aborted load is transient and tied to a since-dead job. Never
+  // persist it, so the Data-pane error banner can't survive a reload.
+  const persistedData: DataPaneState = {
+    ...s.data,
+    status: restingDataStatus(s.data.status, s.data.tables.length > 0),
+    errorMessage: undefined,
+    pendingUrl: undefined,
+    pendingTable: undefined,
+  };
   return {
     activeTab: s.activeTab,
     python: persistedPython,
     sql: s.sql,
-    data: s.data,
+    data: persistedData,
     react: persistedReact,
     file: { path: s.file.path },
   };
@@ -547,6 +565,39 @@ export function removeDataTables(names: Iterable<string>): void {
   });
 }
 
+/**
+ * Clear a failed/aborted Data-pane load without touching loaded tables.
+ * The single authoritative path that reconciles the displayed Data-pane
+ * status with "no in-flight error". Idempotent: no-op (no persist) when the
+ * pane is already clean.
+ */
+export function clearDataError(): void {
+  const d = snapshot.data;
+  if (
+    d.status !== 'error' &&
+    d.status !== 'aborted' &&
+    d.errorMessage === undefined &&
+    d.pendingUrl === undefined &&
+    d.pendingTable === undefined
+  ) {
+    return;
+  }
+  setSnapshot({
+    ...snapshot,
+    data: {
+      // NOTE: can't delegate to restingDataStatus here — it deliberately
+      // passes 'pending' through, but clearDataError must also unstick a
+      // stuck 'pending' load (a job that died with no result), so the
+      // resting status is resolved inline.
+      ...d,
+      status: d.tables.length > 0 ? 'done' : 'idle',
+      errorMessage: undefined,
+      pendingUrl: undefined,
+      pendingTable: undefined,
+    },
+  });
+}
+
 const panelTablesCache: Cache = {
   id: 'panelTables',
   list: () =>
@@ -556,6 +607,12 @@ const panelTablesCache: Cache = {
       sourcePath: t.sourcePath,
     })),
   invalidateNames: async (names) => removeDataTables(names),
+  // Intentionally ignores the predicate: there is a single error slot per
+  // Data pane, so any reset-style sweep clears it regardless of which names
+  // matched. This means e.g. a sandbox-dir change also clears a URL-load
+  // error — acceptable because includeUnkeyedState is opt-in and scoped to
+  // lifecycle resets, not single-entry invalidation.
+  onSweep: () => clearDataError(),
 };
 
 registerCache(panelTablesCache);
@@ -755,7 +812,14 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
     sql: { ...persisted.sql, status: normalize(persisted.sql.status) },
     data: {
       ...persisted.data,
-      status: normalize(persisted.data.status),
+      // Belt-and-braces for snapshots persisted before buildPersisted started
+      // dropping transient errors: never restore a stuck failed-load banner.
+      status: normalize(
+        restingDataStatus(
+          persisted.data.status,
+          persisted.data.tables.length > 0,
+        ),
+      ),
       // Default missing source on pre-tag snapshots; sandbox-tagged entries
       // from before the upgrade get mis-tagged as 'url' and survive the next
       // directory change, but the user can clear them manually.
@@ -764,6 +828,7 @@ export async function restorePanelFromIndexedDB(): Promise<void> {
       ),
       pendingUrl: undefined,
       pendingTable: undefined,
+      errorMessage: undefined,
     },
     react: persistedReact
       ? {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { dispatchLoadData } from './helpers/loadData';
+import { dispatchLoadData, seedSandbox } from './helpers/loadData';
 
 // End-to-end coverage for the LoadData `/input/...` path fix. We seed an OPFS
 // directory with a small CSV, install it as the sandbox dir via the test seam
@@ -12,29 +12,7 @@ import { dispatchLoadData } from './helpers/loadData';
 // either phase past 5 s should fail loudly rather than silently soak up the
 // 30 s default.
 
-const CSV = 'a,b\n1,2\n3,4\n';
-
 const SANDBOX_TIMEOUTS = { pendingTimeoutMs: 5000, resultTimeoutMs: 5000 };
-
-async function seedSandbox(page: import('@playwright/test').Page) {
-  await page.evaluate(async (csv) => {
-    const root = await navigator.storage.getDirectory();
-    // Recreate a clean subdir each run so prior state doesn't bleed across tests.
-    try {
-      await root.removeEntry('e2e_sandbox', { recursive: true });
-    } catch {
-      // First run: nothing to remove.
-    }
-    const dir = await root.getDirectoryHandle('e2e_sandbox', { create: true });
-    const fh = await dir.getFileHandle('mini.csv', { create: true });
-    const w = await fh.createWritable();
-    await w.write(csv);
-    await w.close();
-
-    const sb = await import('/src/lib/sandboxStore.ts');
-    await sb.__adoptDirectoryHandleForTesting(dir);
-  }, CSV);
-}
 
 test.describe('LoadData sandbox-path forms', () => {
   test.beforeEach(async ({ page }) => {

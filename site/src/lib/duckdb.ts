@@ -152,7 +152,7 @@ export function unregisterInput(name: string): void {
  */
 export async function clearAllInputs(): Promise<void> {
   const { invalidateAcrossCaches } = await import('./cacheRegistry');
-  await invalidateAcrossCaches(() => true);
+  await invalidateAcrossCaches(() => true, { includeUnkeyedState: true });
   // Bulk-clear the persisted copy in case any cache's per-name persistence
   // path was skipped (idempotent with the per-entry deletes above).
   const { clearRegistry } = await import('./registryPersistence');

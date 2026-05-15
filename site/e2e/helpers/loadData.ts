@@ -120,3 +120,32 @@ export async function runSqlDirect(page: import('@playwright/test').Page, sql: s
     return tools.runSQL(sql);
   }, sql);
 }
+
+/** The 2-data-row CSV written to the seeded sandbox `mini.csv`. */
+export const MINI_CSV = 'a,b\n1,2\n3,4\n';
+
+/**
+ * Seed an OPFS sandbox dir with `mini.csv` and adopt it via the sandboxStore
+ * test seam. The subdir is recreated each call so prior state doesn't bleed
+ * across tests. Shared by every spec that needs a known sandbox file.
+ */
+export async function seedSandbox(
+  page: import('@playwright/test').Page,
+): Promise<void> {
+  await page.evaluate(async (csv) => {
+    const root = await navigator.storage.getDirectory();
+    try {
+      await root.removeEntry('e2e_sandbox', { recursive: true });
+    } catch {
+      // First run: nothing to remove.
+    }
+    const dir = await root.getDirectoryHandle('e2e_sandbox', { create: true });
+    const fh = await dir.getFileHandle('mini.csv', { create: true });
+    const w = await fh.createWritable();
+    await w.write(csv);
+    await w.close();
+
+    const sb = await import('/src/lib/sandboxStore.ts');
+    await sb.__adoptDirectoryHandleForTesting(dir);
+  }, MINI_CSV);
+}

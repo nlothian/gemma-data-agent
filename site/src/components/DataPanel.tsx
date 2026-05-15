@@ -6,7 +6,7 @@ import useSandboxConfig, {
 
 import type { LoadedSandboxFile } from '../lib/sandboxFiles';
 import type { LoadedTable } from '../lib/duckdb';
-import type { PaneStatus } from '../lib/executionPanelStore';
+import { clearDataError, type PaneStatus } from '../lib/executionPanelStore';
 import type { SandboxFileEntry } from '../lib/sandboxStore';
 import SandboxSettingsSection from './SandboxSettingsSection';
 import { clearAllInputs } from '../lib/duckdb';
@@ -69,6 +69,7 @@ export default function DataPanel({
         >
           <strong>{isCorsError ? 'CORS error' : 'Load failed'}</strong>
           <p>{errorMessage}</p>
+          <DataClearButton label="Dismiss" onClick={clearDataError} />
         </div>
       )}
 
@@ -85,16 +86,10 @@ export default function DataPanel({
             <span>
               {tables.length} table{tables.length === 1 ? '' : 's'} loaded
             </span>
-            <button
-              type="button"
-              className="data-clear-all"
-              onClick={() => {
-                void clearAllInputs();
-              }}
-            >
-              <TrashIcon size={14} />
-              <span>Clear all</span>
-            </button>
+            <DataClearButton
+              label="Clear all"
+              onClick={() => void clearAllInputs()}
+            />
           </div>
           <div className="data-tables">
             {tables.map((t) => (
@@ -125,6 +120,21 @@ export default function DataPanel({
         rest
       )}
     </div>
+  );
+}
+
+function DataClearButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="data-clear-all" onClick={onClick}>
+      <TrashIcon size={14} />
+      <span>{label}</span>
+    </button>
   );
 }
 

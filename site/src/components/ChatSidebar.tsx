@@ -560,6 +560,7 @@ export default function ChatSidebar() {
     tokenUsageStore.setTokenUsage(null);
     subAgentStore.clearAll();
     executionPanelStore.clearNonDataPanes();
+    executionPanelStore.clearDataError();
     void clearScratchpad().catch((err) => {
       console.warn('onNewChat: failed to clear /scratchpad:', err);
     });
