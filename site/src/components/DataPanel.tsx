@@ -6,7 +6,12 @@ import useSandboxConfig, {
 
 import type { LoadedSandboxFile } from '../lib/sandboxFiles';
 import type { LoadedTable } from '../lib/duckdb';
-import { clearDataError, type PaneStatus } from '../lib/executionPanelStore';
+import {
+  clearDataError,
+  setDataPending,
+  setDataResult,
+  type PaneStatus,
+} from '../lib/executionPanelStore';
 import type { SandboxFileEntry } from '../lib/sandboxStore';
 import SandboxSettingsSection from './SandboxSettingsSection';
 import { clearAllInputs } from '../lib/duckdb';
@@ -184,6 +189,14 @@ function TableCard({ table }: { table: LoadedTable }) {
           <h3>
             <code>{table.name}</code>
           </h3>
+          {table.source === 'python' && (
+            <span
+              className="data-table-source-tag"
+              title="Produced by RunPython, not a loaded file/URL"
+            >
+              computed
+            </span>
+          )}
           <span className="data-table-meta">
             {table.format} · {formatRowCount(table.rowCount)} rows
           </span>
@@ -305,21 +318,75 @@ function FileRow({
   file: SandboxFileEntry;
   loaded?: LoadedSandboxFile;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onLoad = async () => {
+    const registerAs = deriveRegisterName(file);
+    setBusy(true);
+    setError(null);
+    // Go through the exact path the agent's LoadData tool uses so all three
+    // stores stay in sync: runLoadDataLocal writes duckdb + the sandboxFiles
+    // registry (→ the per-row badge), and setDataResult writes the panel's
+    // table list (→ the "N tables loaded" header). Calling loadSandboxFile
+    // directly would update the badge but leave the panel saying "No data
+    // loaded".
+    setDataPending(registerAs, file.relativePath);
+    try {
+      const { runLoadDataLocal } = await import('../lib/agentTools');
+      const res = await runLoadDataLocal(file.relativePath, registerAs);
+      setDataResult(res);
+      if ('error' in res) setError(res.error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setDataResult({ error: message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="sandbox-file-row" title={file.relativePath}>
       <span className="sandbox-file-name">{file.name}</span>
       <span className="sandbox-file-ext">{file.ext}</span>
       <span className="sandbox-file-size">{formatSize(file.sizeBytes)}</span>
-      {loaded && (
+      {loaded ? (
         <span
           className="sandbox-file-loaded-badge"
           title={loaded.tableName ? `Table: ${loaded.tableName}` : 'Loaded'}
         >
           {loaded.tableName ? `→ ${loaded.tableName}` : 'loaded'}
         </span>
+      ) : (
+        <button
+          type="button"
+          className="sandbox-file-load-btn"
+          data-error={error ? 'true' : undefined}
+          disabled={busy}
+          onClick={() => void onLoad()}
+          title={
+            error ?? `Load as ${deriveRegisterName(file)}`
+          }
+        >
+          {busy ? 'Loading…' : error ? 'Retry' : 'Load'}
+        </button>
       )}
     </div>
   );
+}
+
+/**
+ * Derive a DuckDB-/registry-safe name from a sandbox file: the filename stem
+ * with every char outside `[A-Za-z0-9_]` replaced, prefixed if it would
+ * otherwise start with a digit. Matches the `[A-Za-z_][A-Za-z0-9_]*` rule
+ * `registerAndLoadBuffer` enforces.
+ */
+function deriveRegisterName(file: SandboxFileEntry): string {
+  const stem =
+    file.name.slice(0, file.name.length - file.ext.length - 1) || file.name;
+  const cleaned = stem.replace(/[^A-Za-z0-9_]/g, '_');
+  return /^[A-Za-z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
 }
 
 function groupFilesByDir(

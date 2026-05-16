@@ -22,6 +22,7 @@ import {
   getCurrentDirectoryHandle,
   type SupportedExt,
 } from './sandboxStore';
+import { registerCache, type Cache } from './cacheRegistry';
 
 export type SandboxFileFormat =
   | 'csv'
@@ -88,6 +89,41 @@ export function getSandboxFile(
 ): LoadedSandboxFile | undefined {
   return registry.get(relativePath);
 }
+
+/**
+ * The per-file "loaded" badge is driven by this registry, so it must
+ * participate in the uniform cache sweep like the other LoadData-derived
+ * caches — otherwise "Clear all" / a per-table clear / a sandbox-dir change
+ * drops the DuckDB table, input registry and panel list but leaves the badge
+ * stuck "loaded" (the file never reverts to its "Load" pill).
+ *
+ * `invalidateNames` only drops this registry's bookkeeping + notifies: the
+ * sibling caches (inputRegistry / virtualFs / loadedTables) run in the same
+ * `invalidateAcrossCaches` pass and own the actual DuckDB/input teardown, so
+ * `disposeEntry` must NOT be re-run here.
+ */
+const sandboxFilesCache: Cache = {
+  id: 'sandboxFiles',
+  list: () =>
+    Array.from(registry.values()).map((e) => ({
+      name: e.name,
+      source: 'sandbox' as const,
+      sourcePath: e.relativePath,
+    })),
+  invalidateNames: async (names) => {
+    const drop = new Set(names);
+    let changed = false;
+    for (const [path, entry] of registry) {
+      if (drop.has(entry.name)) {
+        registry.delete(path);
+        changed = true;
+      }
+    }
+    if (changed) notify();
+  },
+};
+
+registerCache(sandboxFilesCache);
 
 function extOf(name: string): SupportedExt {
   const dot = name.lastIndexOf('.');

@@ -10,6 +10,7 @@ import matplotlibSkillMd from '../prompts/skills/MatplotlibSkill.md?raw';
 import pythonPassDataSkillMd from '../prompts/skills/PythonPassDataSkill.md?raw';
 import sqlSkillMd from '../prompts/skills/SqlSkill.md?raw';
 import dataLoadingSkillMd from '../prompts/skills/DataLoadingSkill.md?raw';
+import { parseSkillMarkdown } from './skillFrontmatter';
 import { isBrowser } from './browser';
 import { awaitToolGate } from './toolDebugger';
 import * as panel from './executionPanelStore';
@@ -86,22 +87,148 @@ export type ListInputsEntry =
 
 export type RunListInputsResult = { inputs: ListInputsEntry[] } | ToolError;
 
-export type CallSkillName =
-  | 'react'
-  | 'matplotlib'
-  | 'python-pass-data'
-  | 'sql'
-  | 'data-loading';
+// On-demand reference cards. This array is the single source of truth for a
+// skill's *identity* (`name`) and *gating* (`requiresFeature`); the `as const`
+// gives the `CallSkillName` literal union and the `satisfies` makes a wrong
+// feature key a compile error. The card *prose* (`when`/`blurb`/`required`)
+// and body come from each file's frontmatter, cross-validated against this
+// array at module load (see PARSED_SKILLS) so a typo fails the build/tests
+// loudly. Order is load-bearing: it fixes both the CallSkill enum order and
+// the system-prompt bullet order.
+const SKILLS = [
+  { name: 'react', requiresFeature: 'runReact', md: reactSkillMd },
+  { name: 'matplotlib', requiresFeature: 'runPython', md: matplotlibSkillMd },
+  {
+    name: 'python-pass-data',
+    requiresFeature: 'runPython',
+    md: pythonPassDataSkillMd,
+  },
+  { name: 'sql', requiresFeature: 'runSql', md: sqlSkillMd },
+  { name: 'data-loading', requiresFeature: 'dataLoading', md: dataLoadingSkillMd },
+] as const satisfies readonly {
+  name: string;
+  requiresFeature: keyof AgentPromptFeatures;
+  md: string;
+}[];
+
+export type CallSkillName = (typeof SKILLS)[number]['name'];
 export type CallSkillInput = { skill: CallSkillName };
 export type CallSkillResult = string | ToolError;
 
-const SKILL_REGISTRY: Record<CallSkillName, string> = {
-  react: reactSkillMd,
-  matplotlib: matplotlibSkillMd,
-  'python-pass-data': pythonPassDataSkillMd,
-  sql: sqlSkillMd,
-  'data-loading': dataLoadingSkillMd,
-};
+interface SkillEntry {
+  name: CallSkillName;
+  requiresFeature: keyof AgentPromptFeatures;
+  /** "REQUIRED before" vs merely "before" the gated tool. */
+  required: boolean;
+  /** Trigger phrase — rendered after the literal word "before ". */
+  when: string;
+  /** Payload phrase — rendered after the literal word "Returns ". */
+  blurb: string;
+  /** Card body, frontmatter stripped — what CallSkill returns to the model. */
+  body: string;
+}
+
+// Parsed eagerly at module load. parseSkillMarkdown throws on any malformed
+// frontmatter; the name/feature cross-check throws on drift between a file's
+// frontmatter and the SKILLS array. Either failure breaks app boot and the
+// entire test run — that is the intended loud-failure guarantee.
+const PARSED_SKILLS: readonly SkillEntry[] = SKILLS.map((s) => {
+  const { meta, body } = parseSkillMarkdown(s.md, s.name);
+  if (meta.name !== s.name) {
+    throw new Error(
+      `Skill ${s.name}: frontmatter name "${meta.name}" does not match the ` +
+        `declared SKILLS name "${s.name}".`,
+    );
+  }
+  if (meta.requiresFeature !== s.requiresFeature) {
+    throw new Error(
+      `Skill ${s.name}: frontmatter requires-feature ` +
+        `"${meta.requiresFeature}" does not match the declared SKILLS ` +
+        `requiresFeature "${s.requiresFeature}".`,
+    );
+  }
+  return {
+    name: s.name,
+    requiresFeature: s.requiresFeature,
+    required: meta.required,
+    when: meta.when,
+    blurb: meta.blurb,
+    body,
+  };
+});
+
+// name → body. Keyed by `string` (not CallSkillName) so a hallucinated /
+// stale skill name is a clean `.get() === undefined` at runtime.
+const SKILL_REGISTRY: ReadonlyMap<string, string> = new Map(
+  PARSED_SKILLS.map((s) => [s.name, s.body]),
+);
+
+function enabledSkills(features: AgentPromptFeatures): SkillEntry[] {
+  return PARSED_SKILLS.filter((s) => !!features[s.requiresFeature]);
+}
+
+/**
+ * Feature-aware CallSkill tool spec: the `skill` enum and the description
+ * list only the skills whose gating feature is enabled. With zero enabled
+ * skills the `enum` keyword is omitted (some providers reject `enum: []`).
+ */
+function callSkillSpec(features: AgentPromptFeatures): AgentToolSpec {
+  const enabled = enabledSkills(features);
+  const list = enabled
+    .map((s) => `'${s.name}' (${s.required ? 'REQUIRED — ' : ''}${s.blurb})`)
+    .join(', ');
+  const description =
+    'Fetch a reference card on demand. Use BEFORE writing code that ' +
+    "touches the relevant area, not after a failure. Returns the skill's " +
+    'markdown text verbatim. ' +
+    (enabled.length
+      ? `Valid \`skill\` values: ${list}. `
+      : 'No reference cards are available with the current feature set. ') +
+    'Read-only and ungated; safe to call any time.';
+  const skill: Record<string, unknown> = {
+    type: 'string',
+    description: 'Which reference card to fetch.',
+  };
+  if (enabled.length) skill.enum = enabled.map((s) => s.name);
+  return {
+    name: 'CallSkill',
+    description,
+    parameters: {
+      type: 'object',
+      properties: { skill },
+      required: ['skill'],
+      additionalProperties: false,
+    },
+  };
+}
+
+/** One system-prompt bullet for an enabled skill. */
+function renderSkillBullet(s: SkillEntry): string {
+  const lead = s.required ? '**REQUIRED** ' : '';
+  return `- \`CallSkill('${s.name}')\` — ${lead}before ${s.when}. Returns ${s.blurb}.`;
+}
+
+/**
+ * The "On-demand reference cards" system-prompt section, listing only the
+ * skills enabled by `features`. Returns `''` when none are enabled so the
+ * whole section (header, intro, closing line) vanishes with no dangling
+ * header — `buildAgentSystemPrompt` filters empty parts out.
+ */
+function renderCallSkillSection(features: AgentPromptFeatures): string {
+  const enabled = enabledSkills(features);
+  if (enabled.length === 0) return '';
+  return [
+    '## On-demand reference cards (`CallSkill`)',
+    '',
+    "Some details aren't in this prompt — fetch them on demand with " +
+      '`CallSkill(skill)`:',
+    '',
+    enabled.map(renderSkillBullet).join('\n'),
+    '',
+    'Call **before** the relevant code, not after a failure. Read-only and ' +
+      'free to call any time.',
+  ].join('\n');
+}
 
 /**
  * Provider-neutral tool definition. `parameters` is a JSON Schema describing
@@ -276,7 +403,13 @@ export async function runPython(code: string): Promise<RunPythonResult> {
       import('./pyodide'),
       import('./duckdb'),
     ]);
-    const { listInputBuffers, registerInput, loadArrowIntoDuckDB, describeArrowIpc } = duck;
+    const {
+      listInputBuffers,
+      registerInput,
+      loadArrowIntoDuckDB,
+      recordPythonTable,
+      describeArrowIpc,
+    } = duck;
 
     const inputs = listInputBuffers();
 
@@ -293,6 +426,9 @@ export async function runPython(code: string): Promise<RunPythonResult> {
             // Malformed IPC — register without schema; loadArrowIntoDuckDB
             // will surface a more useful error if the buffer is bad.
           }
+          // This broadcasts (notifyCachesOnRegister) before the table is in
+          // loadedTables, so it's a no-op for the Data-pane projection by
+          // design; recordPythonTable below issues the authoritative one.
           registerInput(name, buffer, {
             encoding: 'arrow-ipc',
             format: 'python-result',
@@ -301,6 +437,10 @@ export async function runPython(code: string): Promise<RunPythonResult> {
             rowCount,
           });
           await loadArrowIntoDuckDB(name, buffer);
+          // The table now exists in DuckDB: record it in loadedTables and
+          // reconcile so it shows as a Data-pane card (visually tagged
+          // 'computed' via source: 'python').
+          recordPythonTable(name, schema ?? [], rowCount ?? 0);
         }
       }
       return {
@@ -397,43 +537,95 @@ export async function runReactAtPath(
 }
 
 /**
+ * The `/input` virtual root that ListFiles/ReadLines expose over the user's
+ * sandbox directory. ListInputs reports sandbox `sourcePath`s in this same
+ * form so the two tools agree; LoadData strips the prefix back off before
+ * touching the FS Access API (see `parseLoadDataInput`).
+ */
+const INPUT_VIRTUAL_ROOT = '/input';
+
+/** Bare sandbox-relative path (e.g. `reports/sales.csv`) → `/input/...`. */
+export function toInputVirtualPath(relativePath: string): string {
+  return `${INPUT_VIRTUAL_ROOT}/${relativePath}`;
+}
+
+/** Minimal shape `buildListInputsEntries` needs from a sandbox file entry. */
+export interface SandboxFileForListing {
+  relativePath: string;
+  ext: string;
+  sizeBytes: number;
+}
+
+/**
+ * Pure core of `runListInputs`: fold the in-memory input registry plus the
+ * supported sandbox files on disk into the `ListInputsEntry[]` the tool
+ * returns.
+ *
+ * - Sandbox `sourcePath`s are rooted under `/input` (matching
+ *   ListFiles/ReadLines); url/sql/python sources keep theirs verbatim.
+ * - A sandbox file already in the registry is not re-listed as unloaded.
+ *   Dedup is done in *bare* path space — both `meta.sourcePath` and
+ *   `file.relativePath` are bare; the `/input` prefix is presentation-only
+ *   and applied on output, so it must not enter the dedup set.
+ *
+ * `sandboxFiles` is empty when no sandbox directory has been picked.
+ * Exported for unit testing; `runListInputs` wires the data sources to it.
+ */
+export function buildListInputsEntries(
+  registered: RegisteredInputMeta[],
+  sandboxFiles: SandboxFileForListing[],
+): ListInputsEntry[] {
+  const inputs: ListInputsEntry[] = registered.map((meta) =>
+    meta.source === 'sandbox' && meta.sourcePath
+      ? {
+          ...meta,
+          loaded: true as const,
+          sourcePath: toInputVirtualPath(meta.sourcePath),
+        }
+      : { ...meta, loaded: true as const },
+  );
+
+  const loadedSandboxPaths = new Set<string>();
+  for (const meta of registered) {
+    if (meta.source === 'sandbox' && meta.sourcePath) {
+      loadedSandboxPaths.add(meta.sourcePath);
+    }
+  }
+  for (const file of sandboxFiles) {
+    if (loadedSandboxPaths.has(file.relativePath)) continue;
+    inputs.push({
+      loaded: false,
+      source: 'sandbox',
+      sourcePath: toInputVirtualPath(file.relativePath),
+      format: file.ext,
+      byteLength: file.sizeBytes,
+    });
+  }
+
+  return inputs;
+}
+
+/**
  * List every named buffer currently available to RunPython as
  * `arrow_inputs[name]`, plus every supported sandbox file the agent could
  * still load with `LoadData`. Read-only and ungated — this is metadata the
  * agent can fetch at any time to discover and recover state.
+ *
+ * Sandbox `sourcePath`s are reported under the `/input` virtual root so they
+ * match what ListFiles/ReadLines emit. URL/SQL/python sources keep their
+ * `sourcePath` verbatim. See `buildListInputsEntries` for the mapping.
  */
 export async function runListInputs(): Promise<RunListInputsResult> {
   if (!isBrowser()) return { error: BROWSER_ONLY_ERROR };
   try {
     const [{ listInputs }, { getCurrentDirectoryHandle, getSnapshot, refreshFiles }] =
       await Promise.all([import('./duckdb'), import('./sandboxStore')]);
-    const registered = listInputs();
-    const inputs: ListInputsEntry[] = registered.map((meta) => ({
-      ...meta,
-      loaded: true as const,
-    }));
-
+    let sandboxFiles: SandboxFileForListing[] = [];
     if (getCurrentDirectoryHandle()) {
-      const loadedSandboxPaths = new Set<string>();
-      for (const meta of registered) {
-        if (meta.source === 'sandbox' && meta.sourcePath) {
-          loadedSandboxPaths.add(meta.sourcePath);
-        }
-      }
       await refreshFiles();
-      for (const file of getSnapshot().files) {
-        if (loadedSandboxPaths.has(file.relativePath)) continue;
-        inputs.push({
-          loaded: false,
-          source: 'sandbox',
-          sourcePath: file.relativePath,
-          format: file.ext,
-          byteLength: file.sizeBytes,
-        });
-      }
+      sandboxFiles = getSnapshot().files;
     }
-
-    return { inputs };
+    return { inputs: buildListInputsEntries(listInputs(), sandboxFiles) };
   } catch (err) {
     return { error: errorMessage(err) };
   }
@@ -482,6 +674,13 @@ interface AgentTool<TInput, TResult, TWire = TResult> {
   promptMd: string | null;
   /** Feature-flag key controlling availability. `null` = always available. */
   featureKey: keyof AgentPromptFeatures | null;
+  /**
+   * Optional feature-aware spec override. When present, `buildAgentTools`
+   * calls this instead of using the static {name,description,parameters}.
+   * The tool is still feature-included via `featureKey` first (use `null`
+   * to keep it always present, then vary the spec internally).
+   */
+  buildSpec?: (features: AgentPromptFeatures) => AgentToolSpec;
   /** If `false`, dispatch skips `runWithGate` entirely. Defaults to true. */
   gated?: boolean;
   parseInput: (raw: Record<string, unknown>) => TInput;
@@ -503,6 +702,31 @@ export interface LoadDataInput {
   tableName: string;
   format: 'csv' | 'json' | 'parquet' | undefined;
   isRemote: boolean;
+  /**
+   * Set when the (non-remote) path can't be a sandbox path because it
+   * contains `.` / `..` segments. `LoadData` returns this verbatim instead
+   * of letting `resolveFileHandle` surface the browser's cryptic
+   * "Name is not allowed". A *directive* error — it tells the model the one
+   * correct form (the ListInputs `sourcePath`, passed verbatim).
+   */
+  pathError?: string;
+}
+
+/**
+ * `.` / `..` can't appear in a File System Access path segment — the browser
+ * rejects `getDirectoryHandle('.')` with "Name is not allowed". A leading
+ * `./` is recoverable (stripped in `parseLoadDataInput`); anything still
+ * carrying a dot-segment is the model hand-building a path it shouldn't.
+ * Return a directive message rather than the raw browser exception.
+ */
+function sandboxDotSegmentError(url: string): string | undefined {
+  if (!url.split('/').some((s) => s === '.' || s === '..')) return undefined;
+  return (
+    `Cannot load "${url}": "." and ".." path segments are rejected by the ` +
+    `browser file API. Don't construct sandbox paths — pass the ` +
+    '`sourcePath` from `ListInputs` verbatim (e.g. ' +
+    '"/input/reports/sales.csv").'
+  );
 }
 
 /**
@@ -513,18 +737,24 @@ export interface LoadDataInput {
 export function parseLoadDataInput(raw: Record<string, unknown>): LoadDataInput {
   // Strip prefixes the agent invents instead of failing the FS Access name
   // validator with "Name is not allowed": `sandbox:` / `file://` URI schemes,
-  // and the `/input` virtual root used by ListFiles/ReadLines (which refers
-  // to the same sandbox directory LoadData reads).
+  // the `/input` virtual root used by ListFiles/ReadLines (which refers to
+  // the same sandbox directory LoadData reads), and a leading `./` (the
+  // natural relative form a model emits — same class of recoverable
+  // artifact). Interior / `..` dot-segments are NOT silently rewritten:
+  // they get a directive `pathError` instead (see sandboxDotSegmentError).
   const rawUrl = typeof raw.url === 'string' ? raw.url : '';
   const url = rawUrl
     .replace(/^(?:sandbox:|file:\/\/)/, '')
-    .replace(/^\/input(?:\/|$)/, '');
+    .replace(/^\/input(?:\/|$)/, '')
+    .replace(/^(?:\.\/)+/, '');
   const tableName = typeof raw.table_name === 'string' ? raw.table_name : '';
   const fmt = typeof raw.format === 'string' ? raw.format : undefined;
   const format =
     fmt === 'csv' || fmt === 'json' || fmt === 'parquet' ? fmt : undefined;
   const isRemote = /:\/\//.test(url);
-  return { url, tableName, format, isRemote };
+  // Remote URLs legitimately contain `.`/`..`; only sandbox paths are gated.
+  const pathError = isRemote ? undefined : sandboxDotSegmentError(url);
+  return { url, tableName, format, isRemote, pathError };
 }
 
 interface RunSQLInput {
@@ -589,11 +819,14 @@ const LoadDataTool: AgentTool<LoadDataInput, RunLoadDataResult> = {
         description:
           'Public URL of a remote data file, or a path to a file inside ' +
           'the user\'s sandbox directory. Strings containing "://" are ' +
-          'URLs. Sandbox paths may be passed as a bare relative path ' +
-          '("reports/sales.csv") or as the `/input/...` form used by ' +
-          'ListFiles/ReadLines ("/input/reports/sales.csv") — both refer ' +
-          'to the same file. Do NOT add URI schemes like "sandbox:" or ' +
-          '"file://".',
+          'URLs. For sandbox files pass the `sourcePath` from ListInputs ' +
+          'verbatim — never construct a path. It is `/input/...`-rooted ' +
+          '("/input/reports/sales.csv"), the same form ListFiles/ReadLines ' +
+          'use; the `/input` prefix, a "sandbox:"/"file://" scheme, and a ' +
+          'leading "./" are auto-stripped, and a bare "reports/sales.csv" ' +
+          'resolves too. Paths with "." or ".." segments ("../x", ' +
+          '"a/../b") are rejected — re-issue with the exact ListInputs ' +
+          '`sourcePath`.',
       },
       table_name: {
         type: 'string',
@@ -620,10 +853,12 @@ const LoadDataTool: AgentTool<LoadDataInput, RunLoadDataResult> = {
     table_name: input.tableName,
     format: input.format,
   }),
-  run: (input) =>
-    input.isRemote
+  run: (input) => {
+    if (input.pathError) return Promise.resolve({ error: input.pathError });
+    return input.isRemote
       ? runLoadData(input.url, input.tableName, input.format)
-      : runLoadDataLocal(input.url, input.tableName),
+      : runLoadDataLocal(input.url, input.tableName);
+  },
   panel: {
     onPending: (input) => panel.setDataPending(input.tableName, input.url),
     onRunning: () => panel.setRunning('data'),
@@ -1066,8 +1301,10 @@ const ListInputsTool: AgentTool<Record<string, never>, RunListInputsResult> = {
     'UNLOADED entries (`loaded: false`) are supported sandbox files the ' +
     "user's directory contains but that haven't been loaded yet: " +
     '{ loaded: false, source: "sandbox", sourcePath, format, byteLength }. ' +
-    'To use one, call `LoadData(url=sourcePath, table_name=...)` — the ' +
-    '`sourcePath` is the same string you would pass as a sandbox `url`. ' +
+    'Sandbox `sourcePath`s are reported under the `/input` virtual root ' +
+    '(e.g. "/input/reports/sales.csv"), matching ListFiles/ReadLines. ' +
+    'To use one, call `LoadData(url=sourcePath, table_name=...)` — pass the ' +
+    '`sourcePath` verbatim. ' +
     'Read-only and ungated; safe to call any time to discover what data ' +
     'is available or recover state after a page reload. Complementary to ' +
     'ListFiles — ListInputs shows the in-memory registry, ListFiles shows ' +
@@ -1085,55 +1322,25 @@ const ListInputsTool: AgentTool<Record<string, never>, RunListInputsResult> = {
 };
 
 const CallSkillTool: AgentTool<CallSkillInput, CallSkillResult> = {
-  name: 'CallSkill',
-  description:
-    "Fetch a reference card on demand. Use BEFORE writing code that touches " +
-    "the relevant area, not after a failure. Returns the skill's markdown " +
-    "text verbatim. Valid `skill` values: " +
-    "'react' (preloaded libraries in the React sandbox and how to mount " +
-    "canvas-vs-component ones), " +
-    "'matplotlib' (figure-capture rules and `plt.show()` caveat in " +
-    "`RunPython`), " +
-    "'python-pass-data' (Arrow IPC encoding for sending tables from " +
-    "`RunPython` back into DuckDB), " +
-    "'sql' (REQUIRED before `RunSQL`: WriteLines+RunSQL workflow, " +
-    "`_last_sql_result` / `arrow_inputs` bridge, sample-row truncation, " +
-    "`register_as` semantics), " +
-    "'data-loading' (REQUIRED before `LoadData` or `ListInputs`: read/load " +
-    "workflow, input registry shape, sandbox path conventions, CORS " +
-    "handling). " +
-    "Read-only and ungated; safe to call any time.",
-  parameters: {
-    type: 'object',
-    properties: {
-      skill: {
-        type: 'string',
-        enum: [
-          'react',
-          'matplotlib',
-          'python-pass-data',
-          'sql',
-          'data-loading',
-        ],
-        description: 'Which reference card to fetch.',
-      },
-    },
-    required: ['skill'],
-    additionalProperties: false,
-  },
+  // Static fields = the all-features spec (used by AGENT_TOOLS and as the
+  // no-features default). `buildSpec` narrows the visible enum/description
+  // per the active feature set; `featureKey: null` keeps the tool itself
+  // always registered so a disabled skill yields a clean "Unknown skill"
+  // ToolError rather than "Unknown tool".
+  ...callSkillSpec(DEFAULT_FEATURES),
   promptMd: null,
   featureKey: null,
+  buildSpec: callSkillSpec,
   gated: false,
   parseInput: (raw) => ({
     skill: (typeof raw.skill === 'string' ? raw.skill : '') as CallSkillName,
   }),
   run: async (input) => {
-    const md = SKILL_REGISTRY[input.skill];
+    const md = SKILL_REGISTRY.get(input.skill);
     if (md == null) {
+      const valid = PARSED_SKILLS.map((s) => `'${s.name}'`).join(', ');
       return {
-        error:
-          `Unknown skill: ${JSON.stringify(input.skill)}. ` +
-          `Valid: react, matplotlib, python-pass-data, sql, data-loading.`,
+        error: `Unknown skill: ${JSON.stringify(input.skill)}. Valid: ${valid}.`,
       };
     }
     return md;
@@ -1169,19 +1376,30 @@ export function buildAgentTools(
 ): AgentToolSpec[] {
   return TOOL_LIST.filter(
     (t) => t.featureKey == null || !!features[t.featureKey],
-  ).map(({ name, description, parameters }) => ({ name, description, parameters }));
+  ).map((t) =>
+    t.buildSpec
+      ? t.buildSpec(features)
+      : {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+  );
 }
 
 export function buildAgentSystemPrompt(
   features: AgentPromptFeatures = DEFAULT_FEATURES,
 ): string {
-  const parts: string[] = [baseMd];
+  const parts: string[] = [baseMd, renderCallSkillSection(features)];
   for (const t of TOOL_LIST) {
     if (!t.promptMd) continue;
     if (t.featureKey != null && !features[t.featureKey]) continue;
     parts.push(t.promptMd);
   }
-  return parts.map((s) => s.trim()).join('\n\n');
+  return parts
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .join('\n\n');
 }
 
 export const AGENT_SYSTEM_PROMPT = buildAgentSystemPrompt();

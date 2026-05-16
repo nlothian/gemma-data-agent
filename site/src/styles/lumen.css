@@ -2637,6 +2637,21 @@ body.exec-resizing {
   color: var(--steel);
 }
 
+/* Neutral pill marking a RunPython-produced table — deliberately not the
+   aqua "loaded" badge, so computed outputs read as distinct from inputs. */
+.data-table-source-tag {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--steel);
+  background: var(--white);
+  border: 1px solid var(--mist);
+  padding: 1px 6px;
+  border-radius: var(--r-4);
+}
+
 .data-table-url {
   padding: var(--s-1) var(--s-3);
   font-family: var(--font-mono);
@@ -2775,6 +2790,42 @@ body.exec-resizing {
   padding: 1px 6px;
   border-radius: var(--r-4);
   flex: 0 0 auto;
+}
+
+.sandbox-file-load-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--aqua-700);
+  background: var(--white);
+  border: 1px solid var(--aqua-200, var(--mist));
+  padding: 1px 6px;
+  border-radius: var(--r-4);
+  flex: 0 0 auto;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.sandbox-file-load-btn:hover:not(:disabled) {
+  color: var(--white);
+  background: var(--aqua-500);
+  border-color: var(--aqua-500);
+}
+
+.sandbox-file-load-btn:disabled {
+  cursor: default;
+  color: var(--steel);
+  opacity: 0.7;
+}
+
+.sandbox-file-load-btn[data-error='true'] {
+  color: var(--danger-500);
+  border-color: rgba(229, 57, 53, 0.4);
+  background: rgba(229, 57, 53, 0.06);
 }
 
 .sandbox-permission-banner {

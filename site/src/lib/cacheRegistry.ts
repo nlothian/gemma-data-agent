@@ -22,6 +22,10 @@ export interface Cache<TMeta extends CacheMeta = CacheMeta> {
   /** Run after the name sweep, for state a cache holds that isn't keyed by
    *  name (e.g. the Data-pane failed-load banner). */
   onSweep?(predicate: (m: CacheMeta) => boolean): void | Promise<void>;
+  /** Run when a new input/table is registered, so name-agnostic cache state
+   *  can self-heal now that data has genuinely arrived (e.g. clear a stale
+   *  Data-pane failed-load banner after a non-LoadData registration). */
+  onRegister?(meta: CacheMeta): void;
 }
 
 export interface InvalidateOptions {
@@ -63,6 +67,24 @@ export async function invalidateAcrossCaches(
   // After the name sweep, let caches reconcile name-agnostic state (e.g. a
   // Data-pane failed-load banner) so a single lifecycle event clears it too.
   await Promise.all(caches.map((c) => c.onSweep?.(predicate)));
+}
+
+/**
+ * Notify caches that a new input/table was just registered, so name-agnostic
+ * cache state can self-heal — e.g. a successful RunSQL `register_as` /
+ * RunPython `arrow_tables` / sandbox load arrives WITHOUT flowing through the
+ * LoadData onPending/onResult lifecycle, so a prior failed-load banner would
+ * otherwise linger next to the freshly arrived data. Synchronous and
+ * best-effort: a throwing listener must not break registration.
+ */
+export function notifyCachesOnRegister(meta: CacheMeta): void {
+  for (const c of caches) {
+    try {
+      c.onRegister?.(meta);
+    } catch (err) {
+      console.warn(`cacheRegistry: onRegister failed for "${c.id}":`, err);
+    }
+  }
 }
 
 export async function onSandboxDirectoryChange(): Promise<void> {

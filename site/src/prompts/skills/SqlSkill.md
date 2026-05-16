@@ -1,3 +1,10 @@
+---
+name: sql
+requires-feature: runSql
+required: true
+when: "your first `RunSQL` call"
+blurb: "the WriteLines+RunSQL workflow, the `_last_sql_result` / `arrow_inputs` bridge, sample-row truncation, and `register_as` semantics"
+---
 # RunSQL reference card
 
 Required reading before invoking `RunSQL`. Fetched on demand via `CallSkill('sql')`.
@@ -5,6 +12,8 @@ Required reading before invoking `RunSQL`. Fetched on demand via `CallSkill('sql
 ## RunSQL(path, register_as?)
 
 Executes SQL against an in-browser DuckDB-WASM database. The query is loaded from a `.sql` file at `path` under `/scratchpad` or `/input`.
+
+Use files are `/input`. Call `ListInputs` to find them and prefix file paths with `/input`, so a reference to `train.csv` is for a file path `/input/train.csv`. Call  `ListInputs` to check. 
 
 **Always write the query first**, then run it:
 
@@ -22,6 +31,20 @@ Executes SQL against an in-browser DuckDB-WASM database. The query is loaded fro
 - DuckDB state persists for the whole chat session — tables you create stay queryable on later calls.
 - `register_as: "<name>"` publishes the result under an additional name that **survives subsequent `RunSQL` calls** (which only overwrite `_last_sql_result`). Use this when you need the result later in the conversation. Tables created by `LoadData` are already auto-published under their table name.
 
+## Querying loaded tables
+
+Every `LoadData` of a tabular file (csv / json / parquet / xlsx) creates a DuckDB table named `table_name`, queryable directly:
+
+```sql
+SELECT * FROM foo
+```
+
+Both `LoadData` tables and `arrow_tables` returned from `RunPython` (see `CallSkill('python-pass-data')`) are auto-published under their name and persist for the whole chat session, so later `RunSQL` calls can join across them. Use `CallSkill('data-loading')` for the load workflow itself.
+
+- Use standard DuckDB SQL syntax.
+- **ALWAYS quote column names** — e.g. `"PM10 BAM ug/m3"`; unquoted names with spaces or symbols fail to parse.
+
 ## Error symptom → cause
 
 - `"exception_type":"Parser","exception_message":"syntax error at or near` → quote the column names in the query.
+- `IO Error: No files found that match the pattern "train.csv"` → try `FROM "/input/train.csv" instead.

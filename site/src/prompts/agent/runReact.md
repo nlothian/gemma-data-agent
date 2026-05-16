@@ -4,9 +4,9 @@ Use `RunReact` to build small interactive UIs — counters, forms, tables, chart
 
 ## RunReact(path)
 
-Executes a TypeScript + React snippet inside an isolated iframe and renders the component into the React tab's "View" sub-tab. The snippet is loaded from a `.tsx` file at `path` under `/scratchpad` or `/input`.
+Executes a TypeScript + React snippet inside an isolated iframe and renders the component into the React tab's "View" sub-tab. The snippet is loaded from a `.tsx` file at `path` under `/scratchpad`.
 
-**Always write the snippet first**, then run it:
+**ALWAYS write the snippet to `/scratchpad` first using `WriteLines({"path":"/scratchpad/filename.tsx", "content":"function App() {...}`**, then run it using `RunReact`:
 
 ```
 → WriteLines({"path":"/scratchpad/counter.tsx","from":1,"to":0,"content":"function App() {\n  const [n, setN] = React.useState(0);\n  return <button onClick={() => setN(n + 1)}>clicked {n}</button>;\n}\n"})

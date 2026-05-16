@@ -8,7 +8,11 @@ import {
   saveRegistryEntry,
   deleteRegistryEntry,
 } from './registryPersistence';
-import { registerCache, type Cache } from './cacheRegistry';
+import {
+  notifyCachesOnRegister,
+  registerCache,
+  type Cache,
+} from './cacheRegistry';
 
 export const MAX_DISPLAY_ROWS = 1000;
 
@@ -51,7 +55,9 @@ export type DataFormat = 'csv' | 'json' | 'parquet';
 export interface LoadedTable {
   name: string;
   url: string;
-  format: DataFormat;
+  // 'arrow' tags a RunPython-produced table (insertArrowFromIPCStream) so
+  // the Data pane can render it distinctly from a file/URL load.
+  format: DataFormat | 'arrow';
   schema: { name: string; type: string }[];
   rowCount: number;
   source: InputSource;
@@ -134,6 +140,14 @@ export function registerInput(
     const { buffer: _b, ...persistedMeta } = entry;
     void saveRegistryEntry(name, buffer, persistedMeta).catch((err) => {
       console.warn(`registryPersistence: failed to persist "${name}":`, err);
+    });
+    // Page-reload rehydration (skipPersist) restores the panel snapshot on
+    // its own path and must not trigger reconciliation mid-restore; live
+    // registrations let a stale Data-pane banner self-heal.
+    notifyCachesOnRegister({
+      name,
+      source: meta.source,
+      sourcePath: meta.sourcePath,
     });
   }
 }
@@ -316,6 +330,32 @@ export async function loadArrowIntoDuckDB(
     name,
     create: true,
   });
+}
+
+/**
+ * Record a RunPython-produced Arrow table (already inserted into DuckDB via
+ * loadArrowIntoDuckDB) in `loadedTables` so it surfaces as a Data-pane card,
+ * then broadcast so the panel projection reconciles.
+ *
+ * Deliberately NOT folded into loadArrowIntoDuckDB: that helper is also
+ * driven by the page-reload rehydration path (restoreRegistryFromIndexedDB),
+ * which restores the panel snapshot on its own path and must NOT trigger
+ * panel reconciliation mid-restore. Only the live RunPython path calls this.
+ */
+export function recordPythonTable(
+  name: string,
+  schema: { name: string; type: string }[],
+  rowCount: number,
+): void {
+  loadedTables.set(name, {
+    name,
+    url: 'RunPython output',
+    format: 'arrow',
+    schema,
+    rowCount,
+    source: 'python',
+  });
+  notifyCachesOnRegister({ name, source: 'python' });
 }
 
 /**

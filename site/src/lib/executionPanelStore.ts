@@ -14,6 +14,7 @@ import type {
   RunSQLPanelResult,
 } from './agentTools';
 import type { LoadedTable, TabularResult } from './duckdb';
+import { listLoadedTables } from './duckdb';
 import type { RunReactResult } from './reactSandbox';
 import { savePanelSnapshot, loadPanelSnapshot } from './registryPersistence';
 import { registerCache, type Cache } from './cacheRegistry';
@@ -539,19 +540,76 @@ export function setDataResult(res: RunLoadDataResult): void {
     });
     return;
   }
-  const next = snapshot.data.tables.filter((t) => t.name !== res.name);
-  next.push(res);
+  // `data.tables` is a projection of duckdb.loadedTables, not an
+  // independently-held copy of `res`. The table was already projected when
+  // the load published to the input registry (registerInput ->
+  // notifyCachesOnRegister -> reconcileLoadedTables); reconciling again here
+  // closes the publish-throw window and refreshes schema/rowCount.
+  // setDataResult owns only the status/pending/error transition.
+  reconcileLoadedTables();
   setSnapshot({
     ...snapshot,
     data: {
       ...snapshot.data,
       status: 'done',
-      tables: next,
       pendingUrl: undefined,
       pendingTable: undefined,
       errorMessage: undefined,
     },
   });
+}
+
+/**
+ * Reconcile the Data-pane table list against the single source of truth,
+ * `duckdb.loadedTables`. Upsert-only: every loaded table is added or
+ * refreshed in place by name; nothing is removed here. Removal is owned by
+ * the cache sweep (`panelTablesCache.invalidateNames` -> `removeDataTables`),
+ * so a persisted table not yet re-created in DuckDB after a page reload
+ * survives. Idempotent: no setSnapshot / notify / persist when the
+ * projection already matches (preserves the no-op-no-notify contract). Never
+ * touches status/pending/error — those stay owned by the lifecycle
+ * (setDataPending/setRunning/setDataResult); a non-empty `tables` is all the
+ * "No data loaded" empty state needs.
+ */
+function reconcileLoadedTables(): void {
+  const loaded = listLoadedTables();
+  if (loaded.length === 0) return;
+  const current = snapshot.data.tables;
+  const byName = new Map(loaded.map((t) => [t.name, t]));
+  const next = current.map((t) => byName.get(t.name) ?? t);
+  const seen = new Set(current.map((t) => t.name));
+  for (const t of loaded) {
+    if (!seen.has(t.name)) next.push(t);
+  }
+  if (sameTables(current, next)) return;
+  setSnapshot({
+    ...snapshot,
+    data: { ...snapshot.data, tables: next },
+  });
+}
+
+function sameTables(a: LoadedTable[], b: LoadedTable[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x === y) continue; // upsert reused the same reference -> unchanged
+    if (
+      x.name !== y.name ||
+      x.url !== y.url ||
+      x.format !== y.format ||
+      x.rowCount !== y.rowCount ||
+      x.source !== y.source ||
+      x.sourcePath !== y.sourcePath ||
+      x.schema.length !== y.schema.length ||
+      x.schema.some(
+        (c, j) => c.name !== y.schema[j]?.name || c.type !== y.schema[j]?.type,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function removeDataTables(names: Iterable<string>): void {
@@ -613,6 +671,28 @@ const panelTablesCache: Cache = {
   // error — acceptable because includeUnkeyedState is opt-in and scoped to
   // lifecycle resets, not single-entry invalidation.
   onSweep: () => clearDataError(),
+  // `data.tables` is a *projection* of duckdb.loadedTables, not an
+  // independently-pushed copy. Every live table registration broadcasts
+  // here (registerInput -> notifyCachesOnRegister), so reconcile the
+  // projection on each one — this is what makes the pane unable to drift
+  // from reality regardless of which code path loaded the table (LoadData,
+  // the local-file Load button, a direct loadSandboxFile call, …). Removal
+  // is owned by the sweep (invalidateNames -> removeDataTables); reload
+  // restore uses skipPersist registrations, which do NOT broadcast, so the
+  // persisted list is never fought. reconcile only touches `tables` (never
+  // status), so a tabular LoadData's live "Loading…" indicator is not
+  // clobbered when it auto-publishes mid-run.
+  //
+  // Also self-heal a settled failed-load banner: a successful RunSQL
+  // `register_as` / RunPython `arrow_tables` / sandbox load arrives without
+  // the LoadData onPending/onResult lifecycle, so a prior error would
+  // otherwise linger next to the freshly arrived data — but only when
+  // *settled* ('error'/'aborted'), never mid-run.
+  onRegister: () => {
+    reconcileLoadedTables();
+    const st = snapshot.data.status;
+    if (st === 'error' || st === 'aborted') clearDataError();
+  },
 };
 
 registerCache(panelTablesCache);

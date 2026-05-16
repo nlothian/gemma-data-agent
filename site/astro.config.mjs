@@ -86,6 +86,28 @@ export default defineConfig({
         'apache-arrow',
         'fflate',
         'typescript',
+        // pixi.js is `exclude`d above, so Vite serves its raw native ESM tree
+        // and never scans its dependency graph. Pixi's CommonJS deps therefore
+        // bypass dep pre-bundling, and esbuild's CJS->ESM interop never runs on
+        // them — the React sandbox fetches the raw CJS file and the browser
+        // throws "does not provide an export named 'default'" (seen with
+        // eventemitter3, parse-svg-path, …). The fix is bounded, not
+        // whack-a-mole: this list is exactly pixi.js's declared runtime
+        // `dependencies` (version-pinned via package-lock.json, type-only
+        // @types/earcut + @webgpu/types omitted as they have no runtime
+        // import). Pre-bundling the whole set once covers every current and
+        // future interop failure from this excluded package; it only changes
+        // on a deliberate pixi upgrade. ESM-native entries (earcut, tiny-lru)
+        // don't need interop but are kept so the list mirrors pixi's deps and
+        // survives a dep flipping CJS<->ESM in a patch release.
+        '@pixi/colord',
+        '@xmldom/xmldom',
+        'earcut',
+        'eventemitter3',
+        'gifuct-js',
+        'ismobilejs',
+        'parse-svg-path',
+        'tiny-lru',
         // React sandbox iframe loads these via a Vite-bundled module
         // (`reactSandboxLibs.ts`). Pre-bundling keeps the dep URLs stable so
         // first iframe load doesn't race a re-optimisation.

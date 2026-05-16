@@ -1,3 +1,10 @@
+---
+name: react
+requires-feature: runReact
+required: false
+when: "importing any React-sandbox library beyond `react`/`react-dom` (three, pixi, d3, recharts, framer-motion, mermaid, matter-js, simplex-noise, tsparticles)"
+blurb: "import specifiers and mount patterns"
+---
 # React sandbox libraries
 
 Reference card for the React sandbox's preloaded libraries. Fetched on demand via `CallSkill('react')`.
@@ -65,3 +72,5 @@ function App() {
   );
 }
 ```
+
+**ALWAYS write the snippet to `/scratchpad` first using `WriteLines({"path":"/scratchpad/filename.tsx", "content":"function App() {...}`**, then run it using `RunReact`:

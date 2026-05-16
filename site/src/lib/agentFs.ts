@@ -28,19 +28,35 @@ const SCRATCHPAD_TEXT_EXTS: ReadonlySet<string> = new Set([
 
 const INPUT_LISTING_EXTS: ReadonlySet<string> = new Set(SANDBOX_SUPPORTED_EXTS);
 
-export function resolveVirtualPath(virtualPath: string): ResolvedVirtualPath {
+export interface ResolveVirtualPathOptions {
+  /**
+   * When true the path is being written. Only /scratchpad is valid (/input is
+   * read-only), and the error messages name /scratchpad alone so the agent
+   * isn't told to retry under a root it can never write to.
+   */
+  writable?: boolean;
+}
+
+export function resolveVirtualPath(
+  virtualPath: string,
+  opts: ResolveVirtualPathOptions = {},
+): ResolvedVirtualPath {
+  const roots = opts.writable ? '/scratchpad' : '/input or /scratchpad';
   if (typeof virtualPath !== 'string' || !virtualPath.startsWith('/')) {
     throw new Error(
-      `Path must start with /input or /scratchpad (got ${JSON.stringify(virtualPath)})`,
+      `Path must start with ${roots} (got ${JSON.stringify(virtualPath)})`,
     );
   }
   const parts = virtualPath.split('/').filter((p) => p !== '');
   if (parts.length === 0) {
-    throw new Error('Path must start with /input or /scratchpad');
+    throw new Error(`Path must start with ${roots}`);
   }
   const head = parts[0];
   if (head !== 'input' && head !== 'scratchpad') {
-    throw new Error(`Path root must be /input or /scratchpad (got /${head})`);
+    throw new Error(`Path root must be ${roots} (got /${head})`);
+  }
+  if (opts.writable && head === 'input') {
+    throw new Error('/input is read-only — writes must target /scratchpad');
   }
   const segments = parts.slice(1);
   for (const seg of segments) {
@@ -148,10 +164,7 @@ async function locateFileForRead(virtualPath: string): Promise<FileLocation> {
 }
 
 async function locateFileForWrite(virtualPath: string): Promise<FileLocation> {
-  const { root, segments } = resolveVirtualPath(virtualPath);
-  if (root !== 'scratchpad') {
-    throw new Error('Writes are only allowed under /scratchpad');
-  }
+  const { root, segments } = resolveVirtualPath(virtualPath, { writable: true });
   if (segments.length === 0) {
     throw new Error(`Path must include a filename (got /${root})`);
   }
@@ -235,10 +248,7 @@ export async function writeLinesToFile(
   to: number | undefined,
   content: string,
 ): Promise<WriteLinesResult> {
-  const { root } = resolveVirtualPath(virtualPath);
-  if (root !== 'scratchpad') {
-    throw new Error('WriteLines can only target paths under /scratchpad');
-  }
+  resolveVirtualPath(virtualPath, { writable: true });
   if (typeof content !== 'string') {
     throw new Error('content must be a string');
   }

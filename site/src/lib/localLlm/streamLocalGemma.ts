@@ -31,7 +31,7 @@ import {
 } from './thinkingChannelSplitter';
 import { LOCAL_GEMMA_ENDPOINT, type LLMConfig } from '../../types/llm';
 
-const MAX_TOOL_ITERATIONS = 5;
+const MAX_TOOL_ITERATIONS = 10;
 const THINKING_OPEN_MARKER = `${CHANNEL_OPEN}thought\n`;
 
 /**

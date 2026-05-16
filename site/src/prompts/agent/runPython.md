@@ -6,7 +6,7 @@ Use `RunPython` for plotting, statistics, ML, text/PDF parsing, or anything you'
 
 Executes Python in Pyodide. The code is loaded from a `.py` file at `path` under `/scratchpad` or `/input`.
 
-**Always write the code first**, then run it:
+**Always write the code first using WriteLines**, then run it:
 
 ```
 → WriteLines({"path":"/scratchpad/analysis.py","from":1,"to":0,"content":"import pandas as pd\nprint(1 + 1)\n"})
@@ -30,6 +30,8 @@ Read tabular data from `arrow_inputs[name]` (Arrow IPC bytes — decode with `pa
 - `import sqlite3` / SQLAlchemy → same.
 
 If you need a query result in Python, either the table was already loaded by `LoadData` (read `arrow_inputs["<table>"]`) or call `RunSQL` first (with `register_as="<name>"`) and then read `arrow_inputs["<name>"]`.
+
+If the user asks for SQL, then call `RunSQL`.
 
 ## Plotting
 
