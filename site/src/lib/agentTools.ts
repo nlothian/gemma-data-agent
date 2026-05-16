@@ -867,6 +867,30 @@ const LoadDataTool: AgentTool<LoadDataInput, RunLoadDataResult> = {
   },
 };
 
+/**
+ * Populate the File-pane preview for an about-to-run script so the user can
+ * review it during the Step gate. Shared by RunSQL / RunPython / RunReact
+ * `onPending`. No-op when the File pane is disabled — otherwise the hidden
+ * tab flickers through the fallback before `onRunning` switches to the
+ * execution tab.
+ *
+ * Reads the global agent-feature store. This is sound under sub-agents
+ * *because* they only ever override `runSubAgent` (see
+ * `runSubAgent.ts`: `subFeatures = { ...features, runSubAgent: false }`), so
+ * `fileTools` is always inherited from the parent and the global value
+ * matches the sub-agent's. If sub-agent feature subsetting ever stops
+ * inheriting `fileTools`, this read must be routed through the per-run
+ * feature set instead.
+ */
+function previewScriptInFilePane(path: string): void {
+  if (!getFeatures().fileTools) return;
+  panel.setFilePending(path);
+  void tryReadTextFileAt(path).then(
+    (text) => panel.setFileResult(path, text ?? ''),
+    (err) => panel.setFileError(path, errorMessage(err)),
+  );
+}
+
 const RunSQLTool: AgentTool<RunSQLInput, RunSQLOutcome, RunSQLResult> = {
   name: 'RunSQL',
   description:
@@ -923,16 +947,7 @@ const RunSQLTool: AgentTool<RunSQLInput, RunSQLOutcome, RunSQLResult> = {
       // about-to-run source so the user can review it during the Step gate.
       // `onRunning` switches back to the SQL tab once the gate releases.
       panel.setPending('sql', '', input.path);
-      // Skip the File pane when fileTools is disabled — otherwise the tab is
-      // hidden and `setActiveTab('file')` would flicker through the fallback
-      // before `onRunning` switches to 'sql'.
-      if (getFeatures().fileTools) {
-        panel.setFilePending(input.path);
-        void tryReadTextFileAt(input.path).then(
-          (text) => panel.setFileResult(input.path, text ?? ''),
-          (err) => panel.setFileError(input.path, errorMessage(err)),
-        );
-      }
+      previewScriptInFilePane(input.path);
     },
     onRunning: () => {
       panel.setActiveTab('sql');
@@ -986,13 +1001,7 @@ const RunPythonTool: AgentTool<
   panel: {
     onPending: (input) => {
       panel.setPending('python', '', input.path);
-      if (getFeatures().fileTools) {
-        panel.setFilePending(input.path);
-        void tryReadTextFileAt(input.path).then(
-          (text) => panel.setFileResult(input.path, text ?? ''),
-          (err) => panel.setFileError(input.path, errorMessage(err)),
-        );
-      }
+      previewScriptInFilePane(input.path);
     },
     onRunning: () => {
       panel.setActiveTab('python');
@@ -1050,13 +1059,7 @@ const RunReactTool: AgentTool<RunReactInput, RunReactResult & { path?: string }>
   panel: {
     onPending: (input) => {
       panel.setPending('react', '', input.path);
-      if (getFeatures().fileTools) {
-        panel.setFilePending(input.path);
-        void tryReadTextFileAt(input.path).then(
-          (text) => panel.setFileResult(input.path, text ?? ''),
-          (err) => panel.setFileError(input.path, errorMessage(err)),
-        );
-      }
+      previewScriptInFilePane(input.path);
     },
     onRunning: () => {
       panel.setActiveTab('react');

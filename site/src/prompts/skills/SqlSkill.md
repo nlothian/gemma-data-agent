@@ -7,13 +7,11 @@ blurb: "the WriteLines+RunSQL workflow, the `_last_sql_result` / `arrow_inputs` 
 ---
 # RunSQL reference card
 
-Required reading before invoking `RunSQL`. Fetched on demand via `CallSkill('sql')`.
-
 ## RunSQL(path, register_as?)
 
 Executes SQL against an in-browser DuckDB-WASM database. The query is loaded from a `.sql` file at `path` under `/scratchpad` or `/input`.
 
-Use files are `/input`. Call `ListInputs` to find them and prefix file paths with `/input`, so a reference to `train.csv` is for a file path `/input/train.csv`. Call  `ListInputs` to check. 
+`path` is the **`.sql` script** to run — not a data file. RunSQL's DuckDB-WASM cannot read sandbox files by path: there is no `/input` (or any filesystem) inside it. To use a file's data, `LoadData` it first (see `CallSkill('data-loading')`), then query it by its `table_name` — see *Querying loaded tables* below.
 
 **Always write the query first**, then run it:
 
@@ -33,6 +31,8 @@ Use files are `/input`. Call `ListInputs` to find them and prefix file paths wit
 
 ## Querying loaded tables
 
+**Discover before you query — don't guess names.** Call `ListInputs` to see what's loaded. Entries from `LoadData` of a tabular file and `arrow_tables` returned by `RunPython` are real DuckDB tables: `SELECT` from them by their `name`, and use the entry's `schema` for the exact column names to quote. `raw-bytes` entries and the `_last_sql_result` / `register_as` buffers are Python-only bridges, **not** SQL-queryable tables. `ListInputs` is read-only and ungated — call it any time, including to recover state after a page reload. Full shape: `CallSkill('data-loading')`.
+
 Every `LoadData` of a tabular file (csv / json / parquet / xlsx) creates a DuckDB table named `table_name`, queryable directly:
 
 ```sql
@@ -43,8 +43,9 @@ Both `LoadData` tables and `arrow_tables` returned from `RunPython` (see `CallSk
 
 - Use standard DuckDB SQL syntax.
 - **ALWAYS quote column names** — e.g. `"PM10 BAM ug/m3"`; unquoted names with spaces or symbols fail to parse.
+- `ListInputs` does **not** list a table you made with a bare `CREATE TABLE … AS …` inside `RunSQL`. It persists for the session and stays queryable, but you must track that name yourself.
 
 ## Error symptom → cause
 
 - `"exception_type":"Parser","exception_message":"syntax error at or near` → quote the column names in the query.
-- `IO Error: No files found that match the pattern "train.csv"` → try `FROM "/input/train.csv" instead.
+- `IO Error: No files found that match the pattern "X"` → you referenced a file path in SQL. RunSQL's DuckDB can't see sandbox files, and prefixing `/input/` does **not** help (no such path inside DuckDB). `LoadData("X", "<table>")` first (`CallSkill('data-loading')`), then `SELECT … FROM <table>`.

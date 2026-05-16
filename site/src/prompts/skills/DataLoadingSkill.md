@@ -9,7 +9,7 @@ blurb: "the read/load workflow, input-registry shape, sandbox path conventions, 
 
 Required reading before invoking `LoadData` or `ListInputs`. Fetched on demand via `CallSkill('data-loading')`.
 
-This card covers *getting data in*. Once a file is loaded it is both a DuckDB table and an `arrow_inputs` registry buffer — to query it in SQL see `CallSkill('sql')`, to read or decode it in `RunPython` see `CallSkill('python-pass-data')`.
+This card covers *getting data in*. Once a file is loaded it is both a DuckDB table and an `arrow_inputs` registry buffer.
 
 ## Read / load workflow
 
