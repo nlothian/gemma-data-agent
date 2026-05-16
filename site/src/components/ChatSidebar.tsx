@@ -58,6 +58,7 @@ import {
   StopIcon,
 } from './Icons';
 import ModelSelector from './ModelSelector';
+import CustomModelRestoreBanner from './CustomModelRestoreBanner';
 import Throbber from './Throbber';
 import PressureIndicator from './PressureIndicator';
 import MessagesView from './MessagesView';
@@ -176,6 +177,54 @@ export default function ChatSidebar() {
       executionPanelStore.resetPanel();
     };
   }, []);
+
+  // Eager-load the active local model on mount so the first prompt doesn't
+  // wait for MediaPipe's createFromOptions. STRICTLY gated on isModelCached:
+  // boot must never trigger a multi-GB CDN download. Predefined-only — custom
+  // models read from disk (no download) and are warmed by the restore-gesture
+  // commit instead. Idempotent with streamLocalGemma's submit-path
+  // ensureLoaded (it dedupes on the in-flight/loaded singleton).
+  useEffect(() => {
+    if (!cfgReady) return;
+    if (config.activeEndpoint !== LOCAL_GEMMA_ENDPOINT) return;
+    let cancelled = false;
+    let idleHandle: number | null = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    void (async () => {
+      const { resolveActiveLocalModelIdOrDefault, resolveActiveLocalModel } =
+        await import('../lib/localLlm/customModels');
+      const id = resolveActiveLocalModelIdOrDefault(config);
+      const resolved = resolveActiveLocalModel(id);
+      if (cancelled || resolved?.kind !== 'predefined') return;
+      const { detectWebGpu } = await import('../lib/localLlm/webgpu');
+      const gpu = await detectWebGpu();
+      if (cancelled || !gpu.supported) return;
+      const { isModelCached } = await import('../lib/localLlm/opfsCache');
+      const cached = await isModelCached(resolved.model.url);
+      if (cancelled || !cached) return;
+      const run = (): void => {
+        if (cancelled) return;
+        void import('../lib/localLlm/llmService')
+          .then(({ ensureLoaded }) => ensureLoaded(id))
+          .catch((err) => console.error('eager model load failed:', err));
+      };
+      const ric = window.requestIdleCallback;
+      if (typeof ric === 'function') {
+        idleHandle = ric(run, { timeout: 3000 });
+      } else {
+        timeoutHandle = setTimeout(run, 200);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (idleHandle !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+    };
+  }, [cfgReady, config.activeEndpoint, config.models]);
 
   // Track whether the user is pinned near the bottom before each render.
   useEffect(() => {
@@ -616,6 +665,7 @@ export default function ChatSidebar() {
               onModelMenuOpenChange={handleModelMenuSetterReady}
               onRequestModelReady={handleRequestModelReady}
             />
+            <CustomModelRestoreBanner />
           </div>
           <div className="chat-header-actions">
             <PressureIndicator />

@@ -1,7 +1,9 @@
 import {
+  DEFAULT_LOCAL_GEMMA_ID,
   getLocalGemmaModel,
   type LocalGemmaModel,
 } from './models';
+import { LOCAL_GEMMA_ENDPOINT, type LLMConfig } from '../../types/llm';
 
 export interface CustomLocalModel {
   id: string;
@@ -16,7 +18,13 @@ export type ActiveLocalModel =
 const customModels = new Map<string, CustomLocalModel>();
 const listeners = new Set<() => void>();
 
+// Referentially-stable snapshot, rebuilt only on mutation, so it is safe to
+// feed directly to React's `useSyncExternalStore` (which requires the
+// snapshot to be cached between notifications).
+let snapshot: readonly CustomLocalModel[] = [];
+
 function notify(): void {
+  snapshot = Array.from(customModels.values());
   for (const cb of listeners) cb();
 }
 
@@ -69,5 +77,20 @@ export function subscribeCustomModels(cb: () => void): () => void {
 }
 
 export function getCustomModelsSnapshot(): readonly CustomLocalModel[] {
-  return Array.from(customModels.values());
+  return snapshot;
+}
+
+/**
+ * The single source of truth for "which local Gemma model id is active",
+ * applying the default fallback. Used by every local-inference entry point
+ * (`streamLocalGemma`, `summariseCode`, `compactConversation`) and the
+ * boot-time eager-load so they all resolve the same id. Returns a value that
+ * `resolveActiveLocalModel` is guaranteed to resolve: the stored id when it
+ * resolves (predefined or a registered custom model), else
+ * `DEFAULT_LOCAL_GEMMA_ID`.
+ */
+export function resolveActiveLocalModelIdOrDefault(config: LLMConfig): string {
+  const requested =
+    config.models[LOCAL_GEMMA_ENDPOINT] ?? DEFAULT_LOCAL_GEMMA_ID;
+  return resolveActiveLocalModel(requested) ? requested : DEFAULT_LOCAL_GEMMA_ID;
 }

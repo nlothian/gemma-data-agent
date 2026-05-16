@@ -711,6 +711,41 @@ body.chat-resizing {
   border-radius: var(--r-8);
   cursor: pointer;
 }
+.chat-model-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--steel);
+}
+.chat-model-restore > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-model-restore-btn {
+  flex: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--white);
+  background: var(--aqua-600);
+  border: 1px solid var(--aqua-600);
+  padding: 3px 8px;
+  border-radius: var(--r-8);
+  cursor: pointer;
+}
+.chat-model-restore-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.chat-model-restore-btn--ghost {
+  color: var(--graphite);
+  background: var(--white);
+  border-color: var(--silver);
+}
 .chat-tokens {
   font-family: var(--font-mono);
   font-size: 11px;

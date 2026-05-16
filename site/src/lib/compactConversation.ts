@@ -15,9 +15,8 @@ import { callLLM } from './llm';
 import { generate as generateLocal, ensureLoaded } from './localLlm/llmService';
 import { stripCompactedMarker, stripThinking } from './parseAssistantContent';
 import type { ChatMessage } from '../types/chat';
-import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT, type LLMConfig } from '../types/llm';
-import { DEFAULT_LOCAL_GEMMA_ID } from './localLlm/models';
-import { resolveActiveLocalModel } from './localLlm/customModels';
+import { isLocalGemmaEndpoint, type LLMConfig } from '../types/llm';
+import { resolveActiveLocalModelIdOrDefault } from './localLlm/customModels';
 import compactionPromptText from '../prompts/compactionPrompt.md?raw';
 
 export interface CompactConversationArgs {
@@ -37,8 +36,7 @@ export async function compactConversation(
   if (!userPayload.trim()) throw new Error('Nothing to compact.');
 
   if (isLocalGemmaEndpoint(endpoint)) {
-    const requested = config.models[LOCAL_GEMMA_ENDPOINT] ?? DEFAULT_LOCAL_GEMMA_ID;
-    const modelId = resolveActiveLocalModel(requested) ? requested : DEFAULT_LOCAL_GEMMA_ID;
+    const modelId = resolveActiveLocalModelIdOrDefault(config);
     await ensureLoaded(modelId);
     const prompt =
       compactionPromptText + '\n\n' + userPayload + '\n\nSummary:\n';

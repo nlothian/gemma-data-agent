@@ -138,7 +138,10 @@ export function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function idbGet<T>(key: string): Promise<T | undefined> {
+// Exported so other persisted stores (e.g. customModelStore) can reuse the
+// same `haw-sandbox`/`kv` IndexedDB with their own namespaced keys without a
+// schema/version bump. The sandbox keys themselves remain module-private.
+export async function idbGet<T>(key: string): Promise<T | undefined> {
   const db = await openDb();
   return new Promise<T | undefined>((resolve, reject) => {
     const tx = db.transaction(STORE, 'readonly');
@@ -148,7 +151,7 @@ async function idbGet<T>(key: string): Promise<T | undefined> {
   });
 }
 
-async function idbWrite(
+export async function idbWrite(
   ops: (store: IDBObjectStore) => void,
 ): Promise<void> {
   const db = await openDb();

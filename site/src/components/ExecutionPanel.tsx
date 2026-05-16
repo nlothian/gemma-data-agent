@@ -110,6 +110,7 @@ export default function ExecutionPanel() {
         setFeatureMenuOpen,
         setPythonEditor: (code: string) => {
           setActiveTab('python');
+          setCodeFolded(false);
           setEditedPython(code);
         },
       }),

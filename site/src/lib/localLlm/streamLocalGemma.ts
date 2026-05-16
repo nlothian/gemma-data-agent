@@ -6,8 +6,7 @@ import { compactConversation } from '../compactConversation';
 import { COMPACTION_HEADER } from '../autoCompaction';
 import * as tokenUsageStore from '../tokenUsageStore';
 import type { ChatMessage } from '../../types/chat';
-import { DEFAULT_LOCAL_GEMMA_ID } from './models';
-import { resolveActiveLocalModel } from './customModels';
+import { resolveActiveLocalModelIdOrDefault } from './customModels';
 import { ensureLoaded, generate, sizeInTokens } from './llmService';
 import {
   formatToolCallToken,
@@ -235,11 +234,7 @@ export async function streamLocalGemma(opts: StreamChatOptions): Promise<void> {
     onUsage({ input: input ?? 0, output: output ?? 0, tps });
   };
 
-  const modelId = config.models[LOCAL_GEMMA_ENDPOINT] ?? DEFAULT_LOCAL_GEMMA_ID;
-  if (!resolveActiveLocalModel(modelId)) {
-    onError(new Error(`Unknown local model id: ${modelId}`));
-    return;
-  }
+  const modelId = resolveActiveLocalModelIdOrDefault(config);
 
   const thinkingEnabled = config.thinkingEnabled?.[LOCAL_GEMMA_ENDPOINT] ?? false;
 

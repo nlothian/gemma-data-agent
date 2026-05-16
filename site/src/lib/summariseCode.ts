@@ -76,19 +76,16 @@ async function summariseWithLocalGemma(
   userPrompt: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const { LOCAL_GEMMA_ENDPOINT } = await import('../types/llm');
-  const { DEFAULT_LOCAL_GEMMA_ID, getLocalGemmaModel } = await import(
-    './localLlm/models'
+  const { resolveActiveLocalModelIdOrDefault } = await import(
+    './localLlm/customModels'
   );
   const { ensureLoaded, generate } = await import('./localLlm/llmService');
 
-  const stored = config.models[LOCAL_GEMMA_ENDPOINT];
-  const model = getLocalGemmaModel(stored) ?? getLocalGemmaModel(DEFAULT_LOCAL_GEMMA_ID);
-  if (!model) {
-    throw new Error(`Unknown local Gemma model id: ${stored ?? DEFAULT_LOCAL_GEMMA_ID}`);
-  }
-
-  await ensureLoaded(model.id);
+  // Resolves predefined OR a registered custom model (falling back to the
+  // default predefined id only when unresolvable), so a selected custom
+  // model is used for code summaries instead of being silently ignored.
+  const modelId = resolveActiveLocalModelIdOrDefault(config);
+  await ensureLoaded(modelId);
 
   // Plain user-turn prompt — deliberately bypasses the tool-aware template
   // used by `streamLocalGemma` so the model has no tools available and no

@@ -135,4 +135,35 @@ describe('summariseCode (cloud endpoints)', () => {
 
     vi.doUnmock('./localLlm/llmService');
   });
+
+  it('summarises with the active custom model id (not a predefined fallback)', async () => {
+    const ensureLoaded = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('./localLlm/llmService', () => ({
+      ensureLoaded,
+      generate: vi.fn().mockResolvedValue('Custom summary.'),
+      sizeInTokens: () => null,
+      cancel: () => {},
+    }));
+    vi.doMock('./localLlm/customModels', () => ({
+      resolveActiveLocalModelIdOrDefault: () => 'custom:my-model',
+    }));
+
+    vi.resetModules();
+    const fresh = await import('./summariseCode');
+    const config: LLMConfig = {
+      activeEndpoint: LOCAL_GEMMA_ENDPOINT,
+      customEndpoints: [],
+      apiKeys: {},
+      models: { [LOCAL_GEMMA_ENDPOINT]: 'custom:my-model' },
+      thinkingEnabled: {},
+    };
+    const result = await fresh.summariseCode('python', 'print(1)', config);
+    expect(result).toBe('Custom summary.');
+    // The bug fix: a selected custom model must drive the summary instead of
+    // being silently replaced by a predefined default.
+    expect(ensureLoaded).toHaveBeenCalledWith('custom:my-model');
+
+    vi.doUnmock('./localLlm/llmService');
+    vi.doUnmock('./localLlm/customModels');
+  });
 });

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import useLLMConfig from '../hooks/useLLMConfig';
 import useLocalGemmaSwitcher from '../hooks/useLocalGemmaSwitcher';
 import {
@@ -6,13 +12,21 @@ import {
   LOCAL_GEMMA_MODELS,
 } from '../lib/localLlm/models';
 import {
+  getCustomModelsSnapshot,
   registerCustomModel,
   resolveActiveLocalModel,
+  subscribeCustomModels,
   type CustomLocalModel,
 } from '../lib/localLlm/customModels';
+import {
+  isFsAccessFilePickerSupported,
+  persistPickedHandle,
+} from '../lib/localLlm/customModelStore';
 import { detectWebGpu, type WebGpuStatus } from '../lib/localLlm/webgpu';
 import { isLocalGemmaEndpoint, LOCAL_GEMMA_ENDPOINT } from '../types/llm';
 import { ChevronDownIcon, ChevronRightIcon } from './Icons';
+
+const EMPTY_CUSTOM_MODELS: readonly CustomLocalModel[] = [];
 
 export interface ModelSelectorProps {
   onModelMenuOpenChange?: (setter: (open: boolean) => void) => void;
@@ -29,8 +43,17 @@ export default function ModelSelector({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [gpuStatus, setGpuStatus] = useState<WebGpuStatus | null>(null);
-  const [customModel, setCustomModel] = useState<CustomLocalModel | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Registry-driven view of registered custom models so a model restored
+  // elsewhere (the restore banner) or re-picked appears here too. Replaces
+  // the old per-instance local state that never reflected those.
+  const customModels = useSyncExternalStore(
+    subscribeCustomModels,
+    getCustomModelsSnapshot,
+    () => EMPTY_CUSTOM_MODELS,
+  );
+  const fsAccessSupported = isFsAccessFilePickerSupported();
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -88,16 +111,45 @@ export default function ModelSelector({
     [setActiveEndpoint, setModel],
   );
 
+  // Fallback path: plain <input type="file"> yields a transient File only,
+  // so this registration is session-only (no reload persistence). Used when
+  // window.showOpenFilePicker is unavailable.
   const onFileChosen = useCallback(
     (file: File): void => {
       const m = registerCustomModel(file);
-      setCustomModel(m);
       commitCustom(m.id);
       setAdvancedOpen(false);
       setModelMenuOpen(false);
     },
     [commitCustom],
   );
+
+  // Preferred path: showOpenFilePicker returns a FileSystemFileHandle which
+  // customModelStore persists to IndexedDB so the model survives a reload.
+  // Both paths funnel through registerCustomModel (inside persistPickedHandle)
+  // so the two pickers cannot diverge.
+  const onPickViaFsAccess = useCallback(async (): Promise<void> => {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [
+          {
+            description: 'Gemma .task model',
+            accept: { 'application/octet-stream': ['.task'] },
+          },
+        ],
+      });
+      if (!handle) return;
+      const m = await persistPickedHandle(handle);
+      commitCustom(m.id);
+      setAdvancedOpen(false);
+      setModelMenuOpen(false);
+    } catch (err) {
+      // AbortError = user dismissed the picker — silent.
+      if ((err as { name?: string } | null)?.name === 'AbortError') return;
+      console.error('Custom model pick failed:', err);
+    }
+  }, [commitCustom]);
 
   const ep = config.activeEndpoint;
   const rawModel = ep ? config.models[ep] : '';
@@ -178,28 +230,27 @@ export default function ModelSelector({
               );
             })}
 
-            {customModel && (
+            {customModels.map((cm) => (
               <button
+                key={cm.id}
                 type="button"
                 role="menuitem"
                 className={
                   'chat-model-option' +
-                  (ep === LOCAL_GEMMA_ENDPOINT && rawModel === customModel.id
+                  (ep === LOCAL_GEMMA_ENDPOINT && rawModel === cm.id
                     ? ' chat-model-option--active'
                     : '')
                 }
                 onClick={() => {
-                  commitCustom(customModel.id);
+                  commitCustom(cm.id);
                   setModelMenuOpen(false);
                 }}
               >
                 <span className="chat-model-option-main">
-                  <span className="chat-model-option-label">
-                    {customModel.label}
-                  </span>
+                  <span className="chat-model-option-label">{cm.label}</span>
                 </span>
               </button>
-            )}
+            ))}
 
             <div className="chat-model-divider" role="separator" />
 
@@ -221,18 +272,28 @@ export default function ModelSelector({
 
             {advancedOpen && (
               <div className="chat-model-advanced-panel">
-                <label className="chat-model-fileinput">
-                  <input
-                    type="file"
-                    accept=".task"
-                    onChange={(e) => {
-                      const f = e.currentTarget.files?.[0];
-                      e.currentTarget.value = '';
-                      if (f) onFileChosen(f);
-                    }}
-                  />
-                  <span>Choose .task file…</span>
-                </label>
+                {fsAccessSupported ? (
+                  <button
+                    type="button"
+                    className="chat-model-fileinput"
+                    onClick={onPickViaFsAccess}
+                  >
+                    <span>Choose .task file…</span>
+                  </button>
+                ) : (
+                  <label className="chat-model-fileinput">
+                    <input
+                      type="file"
+                      accept=".task"
+                      onChange={(e) => {
+                        const f = e.currentTarget.files?.[0];
+                        e.currentTarget.value = '';
+                        if (f) onFileChosen(f);
+                      }}
+                    />
+                    <span>Choose .task file…</span>
+                  </label>
+                )}
               </div>
             )}
           </div>

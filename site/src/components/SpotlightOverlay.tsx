@@ -85,8 +85,22 @@ function selectorsFor(id: CutoutId): string[] {
   return def.extraSelectors ? [def.selector, ...def.extraSelectors] : [def.selector];
 }
 
-function resolveCutoutRects(ids: ReadonlyArray<CutoutId>): Rect[] {
-  const out: Rect[] = [];
+/** A resolved cutout: its stable id paired with its current spotlight rect. */
+interface KeyedRect {
+  id: CutoutId;
+  rect: Rect;
+}
+
+/**
+ * Resolve the active cutouts to rects, in `ids` order, skipping any whose
+ * element is not currently in the DOM. The `id` is carried alongside the
+ * rect so the tween can pair old/new rects by identity rather than by array
+ * position — without this, an optional cutout that mounts/unmounts (e.g. the
+ * activity throbber) shifts every later index and makes neighbouring cutouts
+ * morph into each other.
+ */
+function resolveKeyedCutouts(ids: ReadonlyArray<CutoutId>): KeyedRect[] {
+  const out: KeyedRect[] = [];
   for (const id of ids) {
     const def = CUTOUTS[id];
     if (!def) continue;
@@ -95,22 +109,9 @@ function resolveCutoutRects(ids: ReadonlyArray<CutoutId>): Rect[] {
       document.querySelectorAll(sel).forEach((el) => rects.push(rectOf(el)));
     }
     if (rects.length === 0) continue;
-    out.push(spotlightRectForRects(rects));
+    out.push({ id, rect: spotlightRectForRects(rects) });
   }
   return out;
-}
-
-function alignByLength(prev: Rect[], next: Rect[]): Rect[] {
-  // Pad the shorter side with copies of the last rect so cutouts can
-  // appear/disappear via tween rather than popping in/out.
-  if (prev.length === next.length) return prev;
-  if (prev.length === 0) return next.map((r) => r);
-  if (prev.length < next.length) {
-    const tail = prev[prev.length - 1];
-    return [...prev, ...next.slice(prev.length).map(() => tail)];
-  }
-  // prev.length > next.length — pad next; caller flips when needed.
-  return prev;
 }
 
 export interface SpotlightOverlayProps {
@@ -138,7 +139,10 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
   });
   const reducedMotion = useRef(false);
   const tweenRaf = useRef<number | null>(null);
-  const prevRectsRef = useRef<Rect[]>([]);
+  // Last displayed rect per cutout id (settled or mid-tween). Keyed by id so
+  // an interrupted tween resumes from where each cutout actually is, and so
+  // appearing/disappearing cutouts are detected by identity, not array index.
+  const prevRectsRef = useRef<Map<CutoutId, Rect>>(new Map());
 
   // Phase machine.
   useEffect(() => {
@@ -204,39 +208,53 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
     const recompute = (): void => {
       if (cancelled) return;
       setVp({ vw: window.innerWidth, vh: window.innerHeight });
-      const target = resolveCutoutRects(cutouts);
+      const target = resolveKeyedCutouts(cutouts);
       animateTo(target);
       syncResizeObserver();
     };
 
-    const animateTo = (target: Rect[]): void => {
+    // Publish a settled set of cutouts: record each rect under its id (so the
+    // next tween can pair by identity) and emit the plain rect array that the
+    // mask + onLayout consumers expect, in `cutouts` order.
+    const commit = (entries: KeyedRect[]): void => {
+      const map = new Map<CutoutId, Rect>();
+      for (const e of entries) map.set(e.id, e.rect);
+      prevRectsRef.current = map;
+      const arr = entries.map((e) => e.rect);
+      setRects(arr);
+      if (onLayout) onLayout(arr);
+    };
+
+    const animateTo = (target: KeyedRect[]): void => {
       const prev = prevRectsRef.current;
-      if (reducedMotion.current || prev.length === 0) {
-        prevRectsRef.current = target;
-        setRects(target);
-        if (onLayout) onLayout(target);
+      if (reducedMotion.current || prev.size === 0) {
+        commit(target);
         return;
       }
-      const from = alignByLength(prev, target);
-      const to = target.length >= from.length
-        ? target
-        : alignByLength(target, from);
-      const len = Math.max(from.length, to.length);
-      const fromPad: Rect[] = Array.from({ length: len }, (_, i) => from[i] ?? from[from.length - 1]);
-      const toPad: Rect[] = Array.from({ length: len }, (_, i) => to[i] ?? to[to.length - 1]);
+      // Tween each target cutout from its own previous rect. A cutout absent
+      // from `prev` (just mounted) starts at its target rect, so it appears
+      // in place rather than sliding out of a neighbouring cutout. A cutout
+      // absent from `target` (just unmounted) is simply dropped — it
+      // disappears in place instead of morphing toward whatever rect happened
+      // to share its array index.
+      const from: Rect[] = target.map((t) => prev.get(t.id) ?? t.rect);
       const start = performance.now();
       if (tweenRaf.current !== null) cancelAnimationFrame(tweenRaf.current);
       const tick = (now: number): void => {
         if (cancelled) return;
         const t = Math.min(1, (now - start) / TWEEN_MS);
+        if (t === 1) {
+          commit(target);
+          tweenRaf.current = null;
+          return;
+        }
         const eased = easeInOut(t);
-        const interp = fromPad.map((f, i) => lerpRect(f, toPad[i], eased));
-        const visible = t === 1 ? target : interp;
-        prevRectsRef.current = visible;
-        setRects(visible);
-        if (onLayout) onLayout(visible);
-        if (t < 1) tweenRaf.current = requestAnimationFrame(tick);
-        else tweenRaf.current = null;
+        const interp = target.map((to, i) => ({
+          id: to.id,
+          rect: lerpRect(from[i], to.rect, eased),
+        }));
+        commit(interp);
+        tweenRaf.current = requestAnimationFrame(tick);
       };
       tweenRaf.current = requestAnimationFrame(tick);
     };
@@ -327,7 +345,7 @@ export default function SpotlightOverlay(props: SpotlightOverlayProps): JSX.Elem
   // Reset prevRects when overlay fully closes so the next open animates fresh.
   useEffect(() => {
     if (phase === null) {
-      prevRectsRef.current = [];
+      prevRectsRef.current = new Map();
       setRects([]);
     }
   }, [phase]);

@@ -24,8 +24,19 @@ interface ShowDirectoryPickerOptions {
   startIn?: FileSystemHandle | string;
 }
 
+interface ShowOpenFilePickerOptions {
+  id?: string;
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: { description?: string; accept: Record<string, string[]> }[];
+  startIn?: FileSystemHandle | string;
+}
+
 interface Window {
   showDirectoryPicker(
     options?: ShowDirectoryPickerOptions,
   ): Promise<FileSystemDirectoryHandle>;
+  showOpenFilePicker(
+    options?: ShowOpenFilePickerOptions,
+  ): Promise<FileSystemFileHandle[]>;
 }
