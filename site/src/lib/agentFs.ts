@@ -272,24 +272,21 @@ export async function writeLinesToFile(
   const existing = await tryReadTextFileAt(virtualPath);
   const created = existing === null;
 
+  const text = existing ?? '';
+  const trailingNewline = text.endsWith('\n');
+  const body = trailingNewline ? text.slice(0, -1) : text;
+  const lines = splitLines(body);
+
   if (bothOmitted) {
-    if (!created) {
-      throw new Error(
-        `File ${virtualPath} already exists. Provide explicit \`from\`/\`to\` to edit it (ReadLines first to see line numbers).`,
-      );
-    }
+    // Omitting both bounds writes `content` as the entire file: creates it
+    // when absent, overwrites it wholesale when it already exists.
     from = 1;
-    to = 0;
+    to = lines.length;
   } else if (created && (from !== 1 || to !== 0)) {
     throw new Error(
       'File does not exist. Omit `from` and `to` to create it from `content`.',
     );
   }
-
-  const text = existing ?? '';
-  const trailingNewline = text.endsWith('\n');
-  const body = trailingNewline ? text.slice(0, -1) : text;
-  const lines = splitLines(body);
 
   const fromN = from as number;
   const toN = to as number;
@@ -308,7 +305,7 @@ export async function writeLinesToFile(
   ];
 
   let outText = next.join('\n');
-  if (outText !== '' && (trailingNewline || created)) {
+  if (outText !== '' && (trailingNewline || created || bothOmitted)) {
     outText += '\n';
   }
 

@@ -1156,11 +1156,11 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
   name: 'WriteLines',
   description:
     'Replace lines [from..to] (1-indexed, inclusive) of a text file under ' +
-    '/scratchpad with the provided content. Omit `from` and `to` to create ' +
-    'a new file from `content` (errors if the path already exists — use ' +
-    'explicit bounds to edit). Use to=from-1 to insert without replacing. ' +
-    '/input is read-only — WriteLines refuses any path outside /scratchpad. ' +
-    'Parent directories are auto-created.',
+    '/scratchpad with the provided content. Omit `from` and `to` to write ' +
+    '`content` as the entire file — creating it if absent, or overwriting ' +
+    'it wholesale if it already exists. Use to=from-1 to insert without ' +
+    'replacing. /input is read-only — WriteLines refuses any path outside ' +
+    '/scratchpad. Parent directories are auto-created.',
   parameters: {
     type: 'object',
     properties: {
@@ -1172,14 +1172,14 @@ const WriteLinesTool: AgentTool<WriteLinesInput, string | ToolError> = {
         type: 'integer',
         description:
           '1-indexed first line to replace. Omit (together with `to`) to ' +
-          'create a new file from `content`.',
+          'write `content` as the entire file (create or overwrite).',
       },
       to: {
         type: 'integer',
         description:
           '1-indexed last line to replace (inclusive). Use to=from-1 to ' +
-          'insert without replacing. Omit (together with `from`) to create ' +
-          'a new file.',
+          'insert without replacing. Omit (together with `from`) to write ' +
+          '`content` as the entire file (create or overwrite).',
       },
       content: {
         type: 'string',

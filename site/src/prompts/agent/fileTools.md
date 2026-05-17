@@ -2,7 +2,7 @@
 
 Two virtual roots are available:
 
-- `/input` — the user's sandbox directory. Read-only. Source material, plus any scripts the user has checked in.
+- `/input` — the user's sandbox directory. Read-only. Source material.
 - `/scratchpad` — your scratch space (OPFS, private to this browser tab). Read/write. Use this for code you intend to execute with `RunPython`/`RunSQL`/`RunReact`.
 
 The workflow is **WriteLines → RunX**. Write code to `/scratchpad/<name>.{py,sql,tsx}` first, then call the execution tool with the same path. On error the result includes `path` so you can `ReadLines` to inspect, `WriteLines` to fix, and re-run.
@@ -27,11 +27,11 @@ Read lines `[from..to]` (1-indexed, inclusive) from a text file. Output is line-
 
 Use this before `WriteLines` if you need to confirm current contents, and after a `RunPython`/`RunSQL`/`RunReact` error to read the file at the `path` it returned.
 
-## WriteLines(path, content) — create / WriteLines(path, from, to, content) — edit
+## WriteLines(path, content) — write whole file / WriteLines(path, from, to, content) — edit
 
 Two modes, distinguished by whether `from`/`to` are present:
 
-- **Create a new file:** omit `from` and `to`; pass just `path` and `content`. Errors if the file already exists (use `ReadLines` first, then edit with explicit bounds).
+- **Write the whole file:** omit `from` and `to`; pass just `path` and `content`. Creates the file if absent, or overwrites it wholesale if it already exists.
 - **Edit an existing file:** pass `from` and `to` to replace lines `[from..to]` (1-indexed, inclusive) with `content`.
   - **Insert without replacing:** `to=from-1`. The range is empty, content is inserted before line `from`.
   - **Replace lines:** `from=1, to=10` replaces lines 1-10 with `content`.

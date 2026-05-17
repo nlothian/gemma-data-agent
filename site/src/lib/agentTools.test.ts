@@ -66,7 +66,7 @@ describe('agentTools registry', () => {
     expect(names).toContain('WriteLines');
   });
 
-  it('WriteLines schema treats `from`/`to` as optional (omit both to create a new file)', () => {
+  it('WriteLines schema treats `from`/`to` as optional (omit both to create or overwrite the whole file)', () => {
     const byName = new Map(AGENT_TOOLS.map((t) => [t.name, t]));
     const tool = byName.get('WriteLines');
     expect(tool).toBeDefined();

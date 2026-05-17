@@ -10,7 +10,8 @@
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --project=chromium",
+    "test:llm_tests": "playwright test --project=llm"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.0.0",
