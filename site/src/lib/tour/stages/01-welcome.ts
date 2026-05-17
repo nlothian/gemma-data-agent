@@ -2,7 +2,7 @@ import type { TourStage } from '../types';
 
 const welcome: TourStage = {
   id: 'welcome',
-  markdown: `# How Agents Work
+  markdown: `# Gemma Data Agents
 
 This app uses Gemma 4 to demonstrate how AI agents work, end to end.
 
