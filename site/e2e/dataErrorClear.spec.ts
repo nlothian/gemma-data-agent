@@ -7,7 +7,7 @@ import { dispatchLoadData, seedSandbox } from './helpers/loadData';
 // should now clear it:
 //   - the Dismiss button in the error block (failed load, zero tables)
 //   - clearing/changing the sandbox directory
-//   - "New chat" (while preserving already-loaded tables)
+//   - "New chat" (which also clears any already-loaded tables)
 //   - a page reload (the error must not be re-hydrated)
 
 const SANDBOX_TIMEOUTS = { pendingTimeoutMs: 5000, resultTimeoutMs: 5000 };
@@ -90,7 +90,7 @@ test.describe('Data-tab error is cleared by every reset path', () => {
     await expectDataErrorCleared(page);
   });
 
-  test('"New chat" clears the error but keeps loaded tables', async ({
+  test('"New chat" clears the error and the loaded tables', async ({
     page,
   }) => {
     await loadMiniTable(page);
@@ -104,9 +104,10 @@ test.describe('Data-tab error is cleared by every reset path', () => {
       bridge.getChatBridge().newChat();
     });
 
-    // New chat clears only the error — the loaded table is preserved.
+    // New chat wipes both the error banner and any loaded tables.
     await expect(page.locator('.data-error')).toHaveCount(0);
-    await expect(page.getByText('1 table loaded')).toBeVisible();
+    await expect(page.getByText('1 table loaded')).toHaveCount(0);
+    await expect(page.getByText('No data loaded.')).toBeVisible();
   });
 
   test('a page reload does not resurrect the error', async ({ page }) => {

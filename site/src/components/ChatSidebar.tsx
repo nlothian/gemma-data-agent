@@ -24,7 +24,7 @@ import * as toolDebugger from '../lib/toolDebugger';
 import * as executionPanelStore from '../lib/executionPanelStore';
 import * as agentFeatures from '../lib/agentFeaturesStore';
 import * as tokenUsageStore from '../lib/tokenUsageStore';
-import { restoreRegistryFromIndexedDB } from '../lib/duckdb';
+import { clearAllInputs, restoreRegistryFromIndexedDB } from '../lib/duckdb';
 import {
   getContextWindowForEndpoint,
   formatTokenCount,
@@ -610,6 +610,9 @@ export default function ChatSidebar() {
     subAgentStore.clearAll();
     executionPanelStore.clearNonDataPanes();
     executionPanelStore.clearDataError();
+    void clearAllInputs().catch((err) => {
+      console.warn('onNewChat: failed to clear loaded data:', err);
+    });
     void clearScratchpad().catch((err) => {
       console.warn('onNewChat: failed to clear /scratchpad:', err);
     });
