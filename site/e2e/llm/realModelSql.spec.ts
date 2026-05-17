@@ -1,7 +1,8 @@
+import { dispatchLoadData, resolveLocalUrl } from '../helpers/loadData';
+import { expect, test } from '@playwright/test';
+
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { test, expect } from '@playwright/test';
-import { dispatchLoadData, resolveLocalUrl } from '../helpers/loadData';
 
 // Heavyweight end-to-end LLM suite (runs only via `npm run test:llm_tests`,
 // the dir-scoped `llm` Playwright project). Unlike customModelPersistence

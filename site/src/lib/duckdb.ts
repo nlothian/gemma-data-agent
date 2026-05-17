@@ -17,7 +17,7 @@ import {
 export const MAX_DISPLAY_ROWS = 1000;
 
 /** Number of sample rows surfaced to the LLM in `RunSQL` summaries. */
-export const LLM_SAMPLE_ROWS = 3;
+export const LLM_SAMPLE_ROWS = 10;
 
 /** Per-cell character cap applied to LLM-visible string cells only. */
 export const LLM_CELL_CHAR_CAP = 500;
