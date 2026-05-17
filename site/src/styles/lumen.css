@@ -29,12 +29,6 @@
   --warning-500: #f4a800;
   --success-500: #00a86b;
 
-  /* Compute Pressure levels */
-  --pressure-nominal: var(--success-500);
-  --pressure-fair: var(--warning-500);
-  --pressure-serious: #ff7a00;
-  --pressure-critical: var(--danger-500);
-
   /* Glossy surfaces */
   --gel-blue: linear-gradient(180deg, #5c95ff 0%, #2a6ee8 50%, #1e66e8 51%, #1452c8 100%);
   --gel-white: linear-gradient(180deg, #ffffff 0%, #f4f7fb 50%, #ecf0f5 51%, #dce2ea 100%);
@@ -810,59 +804,6 @@ body.chat-resizing {
 }
 .chat-iconbtn.chat-pressure-danger:not(:disabled) {
   color: var(--danger-500);
-}
-.pressure-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin-right: var(--s-2);
-}
-.pressure-sparkline-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-1);
-}
-.pressure-sparkline-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  color: var(--steel);
-  text-transform: uppercase;
-}
-.pressure-sparkline {
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  width: 32px;
-  height: 14px;
-  padding: 1px;
-  border-radius: var(--r-2);
-  background: color-mix(in srgb, var(--mist) 50%, transparent);
-  overflow: hidden;
-}
-.pressure-bar {
-  flex: 1 1 0;
-  min-width: 0;
-  border-radius: 1px;
-  background: var(--mist);
-  transition:
-    height 200ms ease,
-    background-color 200ms ease;
-}
-.pressure-bar--empty {
-  background: transparent;
-}
-.pressure-bar--nominal {
-  background: var(--pressure-nominal);
-}
-.pressure-bar--fair {
-  background: var(--pressure-fair);
-}
-.pressure-bar--serious {
-  background: var(--pressure-serious);
-}
-.pressure-bar--critical {
-  background: var(--pressure-critical);
 }
 .chat-header-actions {
   display: flex;
@@ -1821,10 +1762,16 @@ body.exec-resizing {
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
+.exec-play-btn:not(:disabled) {
+  background: var(--aqua-500);
+  border-color: var(--aqua-500);
+  color: var(--white);
+}
+
 .exec-play-btn:not(:disabled):hover {
-  color: var(--ink);
-  background: var(--mist);
-  border-color: var(--steel);
+  background: var(--aqua-700);
+  border-color: var(--aqua-700);
+  color: var(--white);
 }
 
 .exec-play-btn:disabled {

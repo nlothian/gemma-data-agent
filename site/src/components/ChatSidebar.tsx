@@ -60,7 +60,6 @@ import {
 import ModelSelector from './ModelSelector';
 import CustomModelRestoreBanner from './CustomModelRestoreBanner';
 import Throbber from './Throbber';
-import PressureIndicator from './PressureIndicator';
 import MessagesView from './MessagesView';
 
 let hydratePromise: Promise<void> | null = null;
@@ -671,7 +670,6 @@ export default function ChatSidebar() {
             <CustomModelRestoreBanner />
           </div>
           <div className="chat-header-actions">
-            <PressureIndicator />
             {tokenUsage && typeof tokenUsage.tps === 'number' && tokenUsage.tps > 0 && (
               <span
                 className="chat-tps"
