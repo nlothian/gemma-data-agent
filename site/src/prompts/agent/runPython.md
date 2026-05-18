@@ -21,6 +21,8 @@ Executes Python in Pyodide. The code is loaded from a `.py` file at `path` under
 
 Read tabular data from `arrow_inputs[name]` (Arrow IPC bytes — decode with `pa.ipc.open_stream(arrow_inputs[name]).read_all()`). Read non-tabular data from `arrow_inputs[name]` as raw bytes and decode per format (`TextDecoder`, `pypdf`, etc.).
 
+**There is no `pa.ipc.read_table`.** That function does not exist (you may be thinking of `pyarrow.parquet.read_table`). To read an Arrow IPC stream always use `pa.ipc.open_stream(arrow_inputs[name]).read_all()` — not `read_table`.
+
 ## Forbidden in RunPython
 
 `RunPython` runs in a separate Pyodide Worker with **no DuckDB driver and no sqlite3 module**. The only way to read table data in Python is `arrow_inputs[name]`.
@@ -45,4 +47,5 @@ To send tables from Python back into DuckDB, assign to a global named `arrow_tab
 
 - `ModuleNotFoundError: No module named 'sqlite3'` → you tried `pd.read_sql_query`; switch to `arrow_inputs`.
 - `UserWarning: FigureCanvasAgg is non-interactive` → you called `plt.show()`; remove it.
+- `AttributeError: module 'pyarrow.ipc' has no attribute 'read_table'` → `pa.ipc.read_table` does not exist; decode with `pa.ipc.open_stream(arrow_inputs[name]).read_all()` instead.
 - `NameError: name 'arrow_inputs' is not defined` → no data is loaded. Call `ListInputs` and `LoadData` to load the correct inputs.

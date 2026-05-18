@@ -23,6 +23,8 @@ plt.plot(df["t"], df["PM10 BAM ug/m3"])
 plt.xlabel("time"); plt.ylabel("PM10 µg/m³")
 ```
 
+  Reading is **`pa.ipc.open_stream(...).read_all()`** — there is no `pa.ipc.read_table` (that's `pyarrow.parquet.read_table`, a different module). Note the read/write asymmetry: you write with `pa.ipc.new_stream(...)` + `writer.write_table(...)` (see below), but you read back with `open_stream(...).read_all()`, not a matching `read_table`.
+
 - `raw-bytes` — the file's raw bytes (non-tabular sandbox files: md, txt, py, sql, pdf, docx). Decode per `format`:
 
 ```python
