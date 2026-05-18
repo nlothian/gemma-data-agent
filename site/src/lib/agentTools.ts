@@ -230,6 +230,72 @@ function renderCallSkillSection(features: AgentPromptFeatures): string {
   ].join('\n');
 }
 
+// ─── Execution-tool prompt templating ─────────────────────────────────────
+//
+// `base.md` is always included and `fileTools.md` / `runReact.md` are
+// included independently of the *execution* features, yet all three name the
+// execution tools. Hardcoding "RunPython/RunSQL/RunReact" there leaks Python
+// into the prompt even when `runPython` is off — the model then "knows"
+// Python exists and tries to use it. Those files instead carry `{{…}}`
+// tokens that this renderer expands against the active feature set, so a
+// disabled tool's name never reaches the model. Every token degrades
+// gracefully when nothing (or no data-producing tool) is enabled.
+
+const EXEC_TOOLS = [
+  { key: 'runPython', tool: 'RunPython', ext: 'py' },
+  { key: 'runSql', tool: 'RunSQL', ext: 'sql' },
+  { key: 'runReact', tool: 'RunReact', ext: 'tsx' },
+] as const satisfies readonly {
+  key: keyof AgentPromptFeatures;
+  tool: string;
+  ext: string;
+}[];
+
+/** Oxford-comma join: [] → '', [a] → 'a', [a,b] → 'a and b', … */
+function oxford(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+/**
+ * Expand the execution-tool tokens in a prompt fragment against the enabled
+ * features. No-op (early return) for fragments without tokens.
+ */
+function renderPromptTemplate(
+  md: string,
+  features: AgentPromptFeatures,
+): string {
+  if (!md.includes('{{')) return md;
+  const exec = EXEC_TOOLS.filter((e) => !!features[e.key]);
+  const names = exec.map((e) => `\`${e.tool}\``);
+  const exts = exec.map((e) => e.ext);
+  // RunReact can't produce data — only RunPython/RunSQL can. The React
+  // prompt's "compute the values first" hint must list only those.
+  const dataNames = exec
+    .filter((e) => e.key !== 'runReact')
+    .map((e) => `\`${e.tool}\``);
+  const subs: Record<string, string> = {
+    '{{RUN_TOOLS}}': names.length ? oxford(names) : 'none enabled',
+    '{{RUN_TOOLS_SLASHED}}': names.length
+      ? names.join('/')
+      : 'the execution tools',
+    '{{SCRATCHPAD_GLOB}}': exts.length
+      ? `\`/scratchpad/<name>.{${exts.join(',')}}\``
+      : '`/scratchpad/<name>.<ext>`',
+    '{{SCRATCH_EXT}}': exts.length ? `.${exts[0]}` : '.txt',
+    '{{REACT_DATA_HINT}}': dataNames.length
+      ? ` (compute the values in ${dataNames.join(
+          ' / ',
+        )} first and paste them in)`
+      : '',
+  };
+  return md.replace(
+    /\{\{RUN_TOOLS_SLASHED\}\}|\{\{RUN_TOOLS\}\}|\{\{SCRATCHPAD_GLOB\}\}|\{\{SCRATCH_EXT\}\}|\{\{REACT_DATA_HINT\}\}/g,
+    (m) => subs[m] ?? m,
+  );
+}
+
 /**
  * Provider-neutral tool definition. `parameters` is a JSON Schema describing
  * the tool's input arguments. Translated per-provider in `streamChat`.
@@ -1400,7 +1466,7 @@ export function buildAgentSystemPrompt(
     parts.push(t.promptMd);
   }
   return parts
-    .map((s) => s.trim())
+    .map((s) => renderPromptTemplate(s, features).trim())
     .filter((s) => s.length > 0)
     .join('\n\n');
 }
@@ -1416,9 +1482,26 @@ export async function runAgentTool(
   name: string,
   input: unknown,
   signal?: AbortSignal,
+  features: AgentPromptFeatures = getFeatures(),
 ): Promise<unknown> {
   const tool = TOOL_REGISTRY.get(name);
   if (!tool) return { error: `Unknown tool: ${name}` } satisfies ToolError;
+
+  // Feature gate. `buildAgentTools` hides disabled tools from the model and
+  // `buildAgentSystemPrompt` drops their docs, but `TOOL_REGISTRY` is the
+  // *unfiltered* `TOOL_LIST` and shared prompt text can still leak a
+  // disabled tool's name. Without this check the dispatcher would happily
+  // run a tool the user turned off. `featureKey: null` tools (ListInputs,
+  // CallSkill) are always available. (Sub-agents dispatch with the store's
+  // features too; the only divergence — `runSubAgent` — is independently
+  // enforced by the recursion-depth guard in `runSubAgentDispatch`.)
+  if (tool.featureKey != null && !features[tool.featureKey]) {
+    return {
+      error:
+        `The ${name} tool is disabled — the "${tool.featureKey}" feature ` +
+        `is turned off. Don't call ${name}.`,
+    } satisfies ToolError;
+  }
 
   const raw = (input ?? {}) as Record<string, unknown>;
   const parsed = tool.parseInput(raw);

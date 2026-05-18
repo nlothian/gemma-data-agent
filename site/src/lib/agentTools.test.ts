@@ -465,6 +465,16 @@ const feat = (over: Partial<AgentPromptFeatures>): AgentPromptFeatures => ({
   ...NONE,
   ...over,
 });
+// The exact config from the bug report: DataLoading + SQL + React + file
+// tools on, Python off — the model still "knew" Python existed.
+const USER_SCENARIO: AgentPromptFeatures = {
+  dataLoading: true,
+  runSql: true,
+  runPython: false,
+  runReact: true,
+  runSubAgent: false,
+  fileTools: true,
+};
 
 function callSkillParams(features: AgentPromptFeatures) {
   const tool = buildAgentTools(features).find((t) => t.name === 'CallSkill');
@@ -758,5 +768,88 @@ describe('CallSkill — run() returns frontmatter-stripped bodies', () => {
       error?: string;
     };
     expect(res.error).toMatch(/Unknown skill/);
+  });
+});
+
+describe('execution-tool prompt templating (no cross-tool leak)', () => {
+  it('no template token survives any feature combination', () => {
+    // Not a blanket `{{` check — `style={{...}}` in runReact.md is real JSX.
+    const TOKENS = /\{\{(RUN_TOOLS|RUN_TOOLS_SLASHED|SCRATCHPAD_GLOB|SCRATCH_EXT|REACT_DATA_HINT)\}\}/;
+    for (const f of [ALL, NONE, feat({ fileTools: true }), USER_SCENARIO]) {
+      expect(buildAgentSystemPrompt(f)).not.toMatch(TOKENS);
+    }
+  });
+
+  it("the user's scenario (Python off) never names RunPython or .py", () => {
+    const p = buildAgentSystemPrompt(USER_SCENARIO);
+    expect(p).not.toContain('RunPython');
+    expect(p).not.toContain('.py'); // no `{py,…}` glob, no foo.py example
+    // …but the enabled execution tools are still named.
+    expect(p).toContain('`RunSQL`');
+    expect(p).toContain('`RunReact`');
+    expect(p).toContain('/scratchpad/<name>.{sql,tsx}');
+  });
+
+  it('names RunPython only when runPython is enabled', () => {
+    expect(buildAgentSystemPrompt(feat({ runPython: true }))).toContain(
+      '`RunPython`',
+    );
+    expect(buildAgentSystemPrompt(feat({ runReact: true }))).not.toContain(
+      'RunPython',
+    );
+  });
+
+  it('the React "compute first" hint follows the data tools, not RunReact', () => {
+    // React on, no data tool → the parenthetical vanishes entirely.
+    const reactOnly = buildAgentSystemPrompt(feat({ runReact: true }));
+    expect(reactOnly).not.toContain('compute the values');
+    // React + SQL → hint names RunSQL only (RunReact can't produce data).
+    const reactSql = buildAgentSystemPrompt(
+      feat({ runReact: true, runSql: true }),
+    );
+    expect(reactSql).toContain('compute the values in `RunSQL`');
+    expect(reactSql).not.toContain('RunPython');
+  });
+});
+
+describe('runAgentTool feature gate', () => {
+  it('rejects a disabled tool instead of running it', async () => {
+    const res = (await runAgentTool(
+      'RunPython',
+      { path: '/scratchpad/x.py' },
+      undefined,
+      USER_SCENARIO, // runPython: false
+    )) as { error?: string };
+    expect(res.error).toMatch(/RunPython tool is disabled/);
+    expect(res.error).toMatch(/runPython/);
+  });
+
+  it('lets a tool through when its feature is enabled (gate is the only block)', async () => {
+    // runSubAgent enabled → gate passes → reaches the empty-prompt guard.
+    const res = await runAgentTool(
+      'RunSubAgent',
+      { prompt: '   ' },
+      undefined,
+      { ...ALL },
+    );
+    expect(res).toEqual({
+      error: 'RunSubAgent requires a non-empty `prompt`.',
+    });
+  });
+
+  it('gate fires before RunSubAgent dispatch when runSubAgent is off', async () => {
+    const res = (await runAgentTool(
+      'RunSubAgent',
+      { prompt: '   ' },
+      undefined,
+      feat({ runSubAgent: false }),
+    )) as { error?: string };
+    expect(res.error).toMatch(/RunSubAgent tool is disabled/);
+  });
+
+  it('featureKey:null tools (CallSkill) bypass the gate even with everything off', async () => {
+    const md = await runAgentTool('CallSkill', { skill: 'sql' }, undefined, NONE);
+    expect(typeof md).toBe('string');
+    expect(md as string).toContain('_last_sql_result');
   });
 });

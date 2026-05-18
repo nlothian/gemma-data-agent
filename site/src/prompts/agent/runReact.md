@@ -48,7 +48,7 @@ The iframe is `sandbox="allow-scripts"` with a `null` origin. It cannot read hos
 ## Environment notes
 
 - **Don't mount the component yourself.** The host calls `ReactDOM.createRoot(...).render(<App/>)`. Do not call `createRoot` / `render` / `hydrateRoot` in the snippet — it'll fight the host's mount.
-- **No data or file access.** The iframe can't see DuckDB tables, sandbox files, or anything `LoadData` produced. To display data, inline it as a literal in the snippet (compute the values in `RunPython` / `RunSQL` first and paste them in).
+- **No data or file access.** The iframe can't see DuckDB tables, sandbox files, or anything `LoadData` produced. To display data, inline it as a literal in the snippet{{REACT_DATA_HINT}}.
 - **Styling is inline or `<style>`.** `style={{...}}` props work directly. For class-based styling, include a `<style>` element inside `App`'s tree. CSS imports are not supported.
 
 ## Error symptom → cause
