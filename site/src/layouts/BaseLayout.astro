@@ -5,6 +5,7 @@ import ChatSidebar from "../components/ChatSidebar.tsx";
 import TourMenuButton from "../components/TourMenuButton.tsx";
 import SourcecodeMenuButton from "../components/SourcecodeMenuButton.tsx";
 import SourcecodeOverlayHost from "../components/SourcecodeOverlayHost.tsx";
+import GpuBufferWarningBanner from "../components/GpuBufferWarningBanner.tsx";
 
 interface Props {
   title?: string;
@@ -36,6 +37,7 @@ const {
     />
   </head>
   <body class="has-chat">
+    <GpuBufferWarningBanner client:only="react" />
     <nav class="nav">
       <div class="nav-inner">
         <a href="/" class="brand">

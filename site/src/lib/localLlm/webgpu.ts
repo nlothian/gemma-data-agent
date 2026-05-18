@@ -3,6 +3,13 @@ import { isBrowser } from '../browser';
 export interface WebGpuStatus {
   supported: boolean;
   reason?: string;
+  /**
+   * The adapter's `maxBufferSize` limit in bytes, when an adapter was
+   * obtained. LiteRT/MediaPipe loads Gemma weights into a single GPU storage
+   * buffer; browsers that cap this low (Firefox currently pins it at 1 GiB)
+   * cannot hold the model. Undefined when no adapter was available.
+   */
+  maxBufferSize?: number;
 }
 
 let cached: WebGpuStatus | null = null;
@@ -29,14 +36,20 @@ export async function detectWebGpu(): Promise<WebGpuStatus> {
       };
     }
     try {
-      const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+      const adapter = (await gpu.requestAdapter({ powerPreference: 'high-performance' })) as
+        | { limits?: { maxBufferSize?: number } }
+        | null;
       if (!adapter) {
         return {
           supported: false,
           reason: 'WebGPU adapter request returned null. No usable GPU was found.',
         };
       }
-      return { supported: true };
+      const maxBufferSize =
+        typeof adapter.limits?.maxBufferSize === 'number'
+          ? adapter.limits.maxBufferSize
+          : undefined;
+      return { supported: true, maxBufferSize };
     } catch (err) {
       return {
         supported: false,
