@@ -16,3 +16,11 @@ Chrome only for now as it requires a WebGPU buffer bigger than 2.5Gb (Firefox on
 - **Careful context management**. The smaller Gemma models perform worse as the context length increases. The Agent tracks token counts and runs a compaction when required. Sub-agents further protect the main context from lengthy debugging loops, while progressive disclosure via skills means tool instructions are only added to the context when needed.
 
 Read the [complete Kaggle Write Up here](https://www.kaggle.com/competitions/gemma-4-good-hackathon/writeups/gemma-data-agent-litert-and-safety-and-trust).
+
+## Build and Run
+
+```
+cd site
+npm install
+npm run dev
+```
